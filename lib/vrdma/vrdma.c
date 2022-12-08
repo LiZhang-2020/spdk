@@ -34,8 +34,10 @@
 #include "spdk/log.h"
 #include "spdk/vrdma.h"
 #include "spdk/vrdma_snap.h"
+#include "spdk/vrdma_controller.h"
 #include "spdk/vrdma_emu_mgr.h"
 #include "spdk/vrdma_snap_pci_mgr.h"
+// #include "snap_vrdma_ctrl.h"
 
 
 static uint32_t g_vdev_cnt;
@@ -51,6 +53,8 @@ int spdk_vrdma_ctx_start(struct spdk_vrdma_ctx *vrdma_ctx)
 	struct spdk_vrdma_dev *vdev;
 	struct ibv_device **list;
 	int dev_count;
+	struct spdk_emu_ctx *ctx;
+	struct vrdma_ctrl *ctrl;
 
 	SPDK_NOTICELOG("lizh spdk_vrdma_ctx_start...start\n");
 	g_vdev_cnt = 0;	
@@ -88,8 +92,13 @@ int spdk_vrdma_ctx_start(struct spdk_vrdma_ctx *vrdma_ctx)
 	if (spdk_emu_controller_vrdma_create(vdev))
 		goto free_vdev;
 
+	ctx = spdk_emu_ctx_find_by_pci_id(vrdma_ctx->emu_manager, vdev->devid);
+	ctrl = ctx->ctrl;
+	ctrl->emu_ctx  = spdk_vrdma_snap_get_ibv_context(vrdma_ctx->emu_manager);
+	vrdma_ctx->dpa_enabled = 1;
 	if (vrdma_ctx->dpa_enabled) {
 		/*Prove init DPA*/
+		ctrl->dpa_enabled = 1;
 	}
 
 	/* init sf name */

@@ -774,6 +774,7 @@ spdk_vrdma_rpc_controller_configue(struct spdk_jsonrpc_request *request,
 		SPDK_NOTICELOG("lizh spdk_vrdma_rpc_controller_configue...backend_dev done, sf name %s\n",
 						vrdma_sf_name);
     }
+
 	if (attr->src_addr_idx != -1) {
         SPDK_NOTICELOG("lizh spdk_vrdma_rpc_controller_configue...src_addr_idx=0x%x\n", attr->src_addr_idx);
         ctrl = ctx->ctrl;

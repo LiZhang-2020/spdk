@@ -136,9 +136,9 @@ create vrdma adminq 5e:00.3 0    #Will get admin-queue by vrdma device 5e:00.3
 
 #Run RPC on ARM to configure SF
 
-snap-rdma/rpc/snap_rpc.py controller_vrdma_configue -d 0 -e mlx5_0 -n mlx5_2  
+snap-rdma/rpc/snap_rpc.py controller_vrdma_configue -d 0 -e mlx5_0 -n mlx5_2  -------no need for cx7
 
-create vrdma adminq msg 0 106    #Will create PD index 0 for vrdma device on ARM.
+create vrdma adminq msg 0 106 0 0    #Will create PD index 0 for vrdma device on ARM.
 
 create vrdma qp 0 4              #Will 4 qps for test traffic
 

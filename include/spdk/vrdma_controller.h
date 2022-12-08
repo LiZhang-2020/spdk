@@ -38,6 +38,7 @@
 #include "spdk/vrdma_emu_mgr.h"
 #include "spdk/vrdma_srv.h"
 #include "spdk/vrdma_qp.h"
+// #include "vrdma_providers.h"
 
 #define VRDMA_EMU_NAME_PREFIX "VrdmaEmu"
 #define VRDMA_EMU_NAME_MAXLEN 32
@@ -57,10 +58,17 @@ struct vrdma_ctrl {
     struct vrdma_dev dev;
     struct spdk_vrdma_dev *vdev;
     struct snap_context *sctx;
+    struct ibv_context *emu_ctx; /*emu manager ctx*/
     struct ibv_pd *pd;
     struct ibv_mr *mr;
     struct vrdma_admin_sw_qp sw_qp;
     struct snap_vrdma_ctrl *sctrl;
+	uint32_t dpa_enabled:1;
+    uint16_t sf_vhca_id;
+	void *dpa_ctx;
+	void *dpa_emu_dev_ctx;   /*Todo: later will move to emu dev ctx when I know where is it*/
+    // struct vrdma_vq_ops *q_ops;
+    // struct vrdma_prov_ops *ops;
     /** Service-specific callbacks. */
 	const struct vRdmaServiceOps *srv_ops;
     void (*destroy_done_cb)(void *arg);
@@ -76,6 +84,7 @@ struct vrdma_ctrl_init_attr {
     bool force_in_order;
     bool suspended;
 };
+
 
 int vrdma_ctrl_adminq_progress(void *ctrl);
 void vrdma_ctrl_progress(void *ctrl);
