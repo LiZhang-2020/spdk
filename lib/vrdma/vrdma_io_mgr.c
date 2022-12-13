@@ -48,6 +48,7 @@
 
 #define MLX5_ATOMIC_SIZE 8
 #define WQE_DBG
+#define VRDMA_DPA
 
 struct mlx5_wqe_inline_seg {
 	__be32		byte_count;
@@ -170,6 +171,19 @@ static bool vrdma_qp_sm_idle(struct spdk_vrdma_qp *vqp,
 	return false;
 }
 
+#ifdef VRDMA_DPA
+static bool vrdma_qp_sm_poll_pi(struct spdk_vrdma_qp *vqp,
+								   enum vrdma_qp_sm_op_status status)
+{
+	if (status != VRDMA_QP_SM_OP_OK) {
+		SPDK_ERRLOG("failed in previous step, status %d\n", status);
+		vqp->sm_state = VRDMA_QP_STATE_FATAL_ERR;
+		return true;
+	}
+	return false;
+}
+
+#else
 static bool vrdma_qp_sm_poll_pi(struct spdk_vrdma_qp *vqp,
 								   enum vrdma_qp_sm_op_status status)
 {
@@ -206,6 +220,8 @@ static bool vrdma_qp_sm_poll_pi(struct spdk_vrdma_qp *vqp,
 
 	return false;
 }
+
+#endif
 
 static bool vrdma_qp_sm_handle_pi(struct spdk_vrdma_qp *vqp,
 									enum vrdma_qp_sm_op_status status)
@@ -1020,6 +1036,12 @@ static int vrdma_qp_wqe_progress(struct spdk_vrdma_qp *vqp,
 	}
 
 	return 0;
+}
+
+void vrdma_dpa_rx_cb(struct spdk_vrdma_qp *vqp,
+		enum vrdma_qp_sm_op_status status)
+{
+	return vrdma_qp_wqe_progress(vqp, status);
 }
 
 void vrdma_qp_sm_dma_cb(struct snap_dma_completion *self, int status)
