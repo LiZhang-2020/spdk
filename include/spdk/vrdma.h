@@ -73,6 +73,7 @@ struct spdk_vrdma_pd {
 	uint32_t pd_idx;
 	struct ibv_pd *ibpd;
 	struct snap_cross_mkey *crossing_mkey;
+	uint64_t crossing_mkey_vaddr;
 	uint32_t ref_cnt;
 };
 
@@ -83,7 +84,8 @@ struct spdk_vrdma_mem_sge {
 
 struct spdk_vrdma_mr_log {
 	uint64_t start_vaddr;
-	uint64_t log_base;
+	uint64_t base;
+	uint32_t size;
 	uint32_t log_size;
 	uint32_t mkey;
 	struct mlx5_klm *klm_array;

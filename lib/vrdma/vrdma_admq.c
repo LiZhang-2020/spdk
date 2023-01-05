@@ -597,23 +597,44 @@ static int vrdma_create_remote_mkey(struct vrdma_ctrl *ctrl,
 {
 	struct spdk_vrdma_mr_log *lattr;
 	uint32_t total_len = 0;
+	uint32_t log_entity_size;
 	struct spdk_vrdma_pd *vpd = vmr->vpd;
 
 	lattr = &vmr->mr_log;
+#if 0
 	if (vpd->crossing_mkey) {
 		lattr->crossing_mkey = vpd->crossing_mkey;
-	} else {
-		lattr->crossing_mkey = snap_create_cross_mkey(vmr->vpd->ibpd,
-								ctrl->sctrl->sdev);
-	}
+		if (vpd->crossing_mkey_vaddr != lattr->start_vaddr) {
+			SPDK_ERRLOG("\ndev(%s): Failed to create cross mkey for mismatch start_vaddr\n", ctrl->name);
+			return -1;
+		}
+	} else {	
+#endif
+		if (lattr->num_sge == 1) {
+			lattr->log_size = log2above(lattr->sge[0].size);
+			lattr->crossing_mkey = snap_vrdma_create_cross_mkey(vmr->vpd->ibpd,
+								ctrl->sctrl->sdev, lattr->start_vaddr,
+								lattr->sge[0].size);
+			vpd->crossing_mkey_vaddr = lattr->start_vaddr;
+		} else	{
+			lattr->crossing_mkey = snap_vrdma_create_cross_mkey(vmr->vpd->ibpd,
+								ctrl->sctrl->sdev, 0, 0);
+			vpd->crossing_mkey_vaddr = 0;
+		}
+		SPDK_NOTICELOG("\nlizh dev(%s):snap_vrdma_create_cross_mkey "
+		"num_sge %d start_vaddr=0x%lx, size=0x%x log_size=0x%x\n",
+		  ctrl->name, lattr->num_sge, lattr->start_vaddr, lattr->sge[0].size, lattr->log_size);
+//	}
 	if (!lattr->crossing_mkey) {
 		SPDK_ERRLOG("\ndev(%s): Failed to create cross mkey\n", ctrl->name);
 			return -1;
 	}
-	if (lattr->num_sge == 1 && !lattr->start_vaddr) {
+	//if (lattr->num_sge == 1 && !lattr->start_vaddr) {
+	if (lattr->num_sge == 1) {
 		lattr->mkey = lattr->crossing_mkey->mkey;
-		lattr->log_base = lattr->sge[0].paddr;
-		lattr->log_size = lattr->sge[0].size;
+		lattr->base = lattr->sge[0].paddr;
+		lattr->size = lattr->sge[0].size;
+		lattr->log_size = log2above(lattr->sge[0].size);
 	} else {
 		/* 3 layers TPT traslation: indirect_mkey -> crossing_mkey -> crossed_mkey */
 		lattr->indirect_mkey = vrdma_create_indirect_mkey(ctrl->sctrl->sdev,
@@ -624,18 +645,19 @@ static int vrdma_create_remote_mkey(struct vrdma_ctrl *ctrl,
 			goto destroy_crossing;
 		}
 		lattr->mkey = lattr->indirect_mkey->mkey;
-		lattr->log_size = total_len;
-		lattr->log_base = 0;
+		lattr->size = total_len;
+		lattr->base = 0;
+		lattr->log_size = log2above(total_len);
 	}
 	if (!vpd->crossing_mkey)
 		vpd->crossing_mkey = lattr->crossing_mkey;
 	SPDK_NOTICELOG("\ndev(%s): Created remote mkey=0x%x, "
-	"start_vaddr=0x%lx, base=0x%lx, size=0x%x\n",
-		  ctrl->name, lattr->mkey, lattr->start_vaddr, lattr->log_base, lattr->log_size);
+	"start_vaddr=0x%lx, base=0x%lx, size=0x%x log_size=0x%x\n",
+		  ctrl->name, lattr->mkey, lattr->start_vaddr, lattr->base, lattr->size, lattr->log_size);
 	return 0;
 
 destroy_crossing:
-	if (!vpd->crossing_mkey)
+	//if (!vpd->crossing_mkey)
 		vrdma_destroy_crossing_mkey(ctrl->sctrl->sdev, lattr->crossing_mkey);
 	return -1;
 }
