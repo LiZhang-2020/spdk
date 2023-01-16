@@ -185,6 +185,7 @@ static bool vrdma_qp_sm_poll_pi(struct spdk_vrdma_qp *vqp,
 {
 	int ret;
 	uint64_t pi_addr = vqp->sq.comm.doorbell_pa;
+	uint64_t vcq_ci_addr = vqp->sq_vcq->ci_pa;
 
 	if (status != VRDMA_QP_SM_OP_OK) {
 		SPDK_ERRLOG("failed in previous step, status %d\n", status);
@@ -206,10 +207,22 @@ static bool vrdma_qp_sm_poll_pi(struct spdk_vrdma_qp *vqp,
 	vqp->q_comp.count = 1;
 
 	ret = snap_dma_q_write(vqp->snap_queue->dma_q, (void *)pi_addr, sizeof(uint16_t), 
-							vqp->snap_queue->ctrl->xmkey->mkey, (uint64_t)&vqp->qp_pi->pi.sq_pi,
-							vqp->qp_mr->lkey, &vqp->q_comp);
+				vqp->snap_queue->ctrl->xmkey->mkey, (uint64_t)&vqp->qp_pi->pi.sq_pi,
+				vqp->qp_mr->lkey, &vqp->q_comp);
 	if (spdk_unlikely(ret)) {
 		SPDK_ERRLOG("failed to read sq PI, ret %d\n", ret);
+		vqp->sm_state = VRDMA_QP_STATE_FATAL_ERR;
+		return true;
+	}
+	vqp->stats.sq_dma_tx_cnt++;
+
+	/* #2 poll vqp cq ci */
+	vqp->q_comp.count++;
+	ret = snap_dma_q_write(vqp->snap_queue->dma_q, (void *)vcq_ci_addr, sizeof(uint32_t),
+					  vqp->snap_queue->ctrl->xmkey->mkey, (uint64_t)&vqp->sq_vcq->pici->ci,
+					  vqp->sq_vcq->cqe_ci_mr->lkey, &vqp->q_comp);
+	if (spdk_unlikely(ret)) {
+		SPDK_ERRLOG("failed to read sq vcq CI, ret %d\n", ret);
 		vqp->sm_state = VRDMA_QP_STATE_FATAL_ERR;
 		return true;
 	}
@@ -230,7 +243,8 @@ static bool vrdma_qp_sm_handle_pi(struct spdk_vrdma_qp *vqp,
 	if (vqp->qp_pi->pi.sq_pi != vqp->sq.comm.pre_pi) {
 		vqp->sm_state = VRDMA_QP_STATE_WQE_READ;
 	} else {
-		vqp->sm_state = VRDMA_QP_STATE_POLL_CQ_CI;
+		//vqp->sm_state = VRDMA_QP_STATE_POLL_CQ_CI;
+		vqp->sm_state = VRDMA_QP_STATE_GEN_COMP;
 	}
 	return true;
 }
@@ -734,7 +748,8 @@ static bool vrdma_qp_wqe_sm_submit(struct spdk_vrdma_qp *vqp,
 	SPDK_NOTICELOG("vrdam submit sq wqe: pi %d, pre_pi %d, num_to_submit %d\n",
 					vqp->qp_pi->pi.sq_pi, vqp->sq.comm.pre_pi, num_to_parse);
 #endif
-	vqp->sm_state = VRDMA_QP_STATE_POLL_CQ_CI;
+	//vqp->sm_state = VRDMA_QP_STATE_POLL_CQ_CI;
+	vqp->sm_state = VRDMA_QP_STATE_GEN_COMP;
 
 	for (i = 0; i < num_to_parse; i++) {
 		wqe = vqp->sq.sq_buff + ((vqp->sq.comm.pre_pi + i) % q_size);
