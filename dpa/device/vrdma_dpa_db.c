@@ -251,8 +251,9 @@ void vrdma_db_handler(flexio_uintptr_t thread_arg)
 #ifdef DPA_LATENCY_TEST
 	while (1)
 #else
-	while ((rq_pi_last != rq_pi) ||
-	 	(sq_pi_last != sq_pi))
+	//while ((rq_pi_last != rq_pi) ||
+	 //	(sq_pi_last != sq_pi))
+	while (0)
 #endif
 	{
 		sq_free_wqe_num = vrdma_get_sq_free_wqe_num(ehctx);

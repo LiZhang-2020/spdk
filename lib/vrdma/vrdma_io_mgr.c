@@ -58,7 +58,7 @@
 //#define POLL_PI_DBG
 //#define PREFETCH_WQE
 #if defined(CX7) || defined(BF3)
-#define VRDMA_DPA
+//#define VRDMA_DPA
 #endif
 
 struct mlx5_wqe_inline_seg {
