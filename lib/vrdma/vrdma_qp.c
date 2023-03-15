@@ -402,7 +402,7 @@ void vrdma_destroy_backend_qp(struct vrdma_ctrl *ctrl, uint32_t vqp_idx)
 			msg.remote_vqpn = qp->remote_vqpn;
 			msg.remote_gid_ip = lqp->remote_gid_ip;
 			msg.qp_state = SPDK_VRDMA_RPC_QP_DESTROYED;
-			if (spdk_vrdma_rpc_send_qp_msg(ctrl, g_vrdma_rpc.node_rip, &msg)) {
+			if (spdk_vrdma_rpc_send_qp_msg(g_vrdma_rpc.node_rip, &msg)) {
         		SPDK_ERRLOG("Fail to send local qp %d to remote qp %d to destroy\n",
             	vqp_idx, msg.remote_vqpn);
     		}
@@ -614,7 +614,7 @@ int vrdma_qp_notify_remote_by_rpc(struct vrdma_ctrl *ctrl, uint32_t vqpn,
 	"remote_vqpn 0x%x gid_ip 0x%lx remote_gid_ip 0x%lx\n",
     vqpn, msg.bk_qpn, bk_qp->remote_qpn, msg.remote_node_id,
 	msg.remote_vqpn, msg.qp_attr.gid_ip, msg.remote_gid_ip);
-    if (spdk_vrdma_rpc_send_qp_msg(ctrl, g_vrdma_rpc.node_rip, &msg)) {
+    if (spdk_vrdma_rpc_send_qp_msg(g_vrdma_rpc.node_rip, &msg)) {
         SPDK_ERRLOG("Fail to send local qp %d to remote qp %d\n",
             vqpn, remote_vqpn);
     }

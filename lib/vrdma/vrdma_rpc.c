@@ -63,8 +63,10 @@
 #include "spdk/vrdma_qp.h"
 #include "spdk/vrdma_rpc.h"
 #include "spdk/vrdma_io_mgr.h"
+#include "spdk/vrdma_mr.h"
 
 static char *g_vrdma_qp_method_str = "VRDMA_RPC_SRV_QP";
+static char *g_vrdma_mkey_method_str = "VRDMA_RPC_MKEY";
 static SLIST_HEAD(, spdk_vrdma_rpc_method) g_vrdma_rpc_methods = SLIST_HEAD_INITIALIZER(g_vrdma_rpc_methods);
 struct spdk_vrdma_rpc g_vrdma_rpc;
 uint64_t g_node_ip = 0;
@@ -339,7 +341,7 @@ spdk_vrdma_client_send_request(struct spdk_vrdma_rpc_client *client,
 }
 
 static int
-spdk_vrdma_rpc_client_configuration(struct vrdma_ctrl *ctrl, const char *addr)
+spdk_vrdma_rpc_client_configuration(const char *addr)
 {
     struct spdk_vrdma_rpc_client *client = &g_vrdma_rpc.client;
 
@@ -460,7 +462,7 @@ spdk_vrdma_rpc_qp_info_json(struct spdk_vrdma_rpc_qp_msg *info,
 }
 
 static int
-spdk_vrdma_rpc_client_send_qp_msg(struct vrdma_ctrl *ctrl,
+spdk_vrdma_rpc_client_send_qp_msg(
             struct spdk_vrdma_rpc_qp_msg *msg)
 {
     struct spdk_vrdma_rpc_client *client = &g_vrdma_rpc.client;
@@ -508,15 +510,15 @@ out:
     return -1;
 }
 
-int spdk_vrdma_rpc_send_qp_msg(struct vrdma_ctrl *ctrl, const char *addr,
+int spdk_vrdma_rpc_send_qp_msg(const char *addr,
                 struct spdk_vrdma_rpc_qp_msg *msg)
 {
-    if (spdk_vrdma_rpc_client_configuration(ctrl, addr)) {
+    if (spdk_vrdma_rpc_client_configuration(addr)) {
         SPDK_ERRLOG("Failed to client configuration for vqp %d\n",
             msg->qp_attr.vqpn);
         return -1;
     }
-    if (spdk_vrdma_rpc_client_send_qp_msg(ctrl, msg)) {
+    if (spdk_vrdma_rpc_client_send_qp_msg(msg)) {
         SPDK_ERRLOG("Failed to send request for vqp %d\n",
             msg->qp_attr.vqpn);
         return -1;
@@ -680,6 +682,271 @@ invalid:
                      "Invalid parameters");
 }
 
+static const struct spdk_json_object_decoder
+spdk_vrdma_rpc_mkey_resp_decoder[] = {
+    {
+        "request_id",
+        offsetof(struct spdk_vrdma_rpc_mkey_attr, request_id),
+        spdk_json_decode_uint32
+    },
+    {
+        "gid",
+        offsetof(struct spdk_vrdma_rpc_mkey_attr, gid_ip),
+        spdk_json_decode_uint64
+    },
+    {
+        "vqpn",
+        offsetof(struct spdk_vrdma_rpc_mkey_attr, vqpn),
+        spdk_json_decode_uint32,
+        true
+    },
+    {
+        "vkey",
+        offsetof(struct spdk_vrdma_rpc_mkey_attr, vkey),
+        spdk_json_decode_uint32,
+        true
+    },
+    {
+        "mkey",
+        offsetof(struct spdk_vrdma_rpc_mkey_attr, mkey),
+        spdk_json_decode_uint32,
+        true
+    },
+};
+
+static void
+spdk_vrdma_client_mkey_resp_handler(struct spdk_vrdma_rpc_client *client,
+				    struct spdk_jsonrpc_client_response *resp)
+{
+    struct spdk_vrdma_rpc_mkey_attr *attr;
+    uint32_t request_id = 0;
+    struct vrdma_r_vkey_entry r_vkey;
+
+    attr = calloc(1, sizeof(*attr));
+    if (!attr)
+        goto close_rpc;
+
+    if (spdk_json_decode_object(resp->result,
+            spdk_vrdma_rpc_mkey_resp_decoder,
+            SPDK_COUNTOF(spdk_vrdma_rpc_mkey_resp_decoder),
+            attr)) {
+        SPDK_ERRLOG("Failed to decode result for mkey_msg\n");
+        goto free_attr;
+    }
+    SPDK_NOTICELOG("Decode mkey resp msg: request_id =0x%x "
+    "gid_ip=0x%lx vqpn=%d vkey=0x%x mkey=0x%x\n",
+    attr->request_id, attr->gid_ip, attr->vqpn,
+    attr->vkey, attr->mkey);
+    if (!attr->gid_ip) {
+        SPDK_NOTICELOG("Skip decode mkey result for zero gid_ip\n");
+        goto free_attr;
+    }
+    r_vkey.mkey = attr->mkey;
+    r_vkey.ts = spdk_get_ticks();
+    vrdma_add_r_vkey_list(attr->gid_ip, attr->vkey, &r_vkey);
+free_attr:
+    request_id = attr->request_id;
+    free(attr);
+close_rpc:
+	spdk_jsonrpc_client_free_response(resp);
+    if (request_id && client->client_conn) {
+        spdk_jsonrpc_client_remove_request_from_list(client->client_conn,
+            request_id);
+        if (spdk_jsonrpc_client_request_list_empty(client->client_conn))
+            spdk_vrdma_close_rpc_client(client);
+    } else {
+        spdk_vrdma_close_rpc_client(client);
+    }
+    return;
+}
+
+static const struct spdk_json_object_decoder
+spdk_vrdma_rpc_mkey_req_decoder[] = {
+    {
+        "request_id",
+        offsetof(struct spdk_vrdma_rpc_mkey_attr, request_id),
+        spdk_json_decode_uint32
+    },
+    {
+        "gid",
+        offsetof(struct spdk_vrdma_rpc_mkey_attr, gid_ip),
+        spdk_json_decode_uint64
+    },
+    {
+        "vqpn",
+        offsetof(struct spdk_vrdma_rpc_mkey_attr, vqpn),
+        spdk_json_decode_uint32,
+        true
+    },
+    {
+        "vkey",
+        offsetof(struct spdk_vrdma_rpc_mkey_attr, vkey),
+        spdk_json_decode_uint32,
+        true
+    },
+    {
+        "mkey",
+        offsetof(struct spdk_vrdma_rpc_mkey_attr, mkey),
+        spdk_json_decode_uint32,
+        true
+    },
+};
+
+static void
+spdk_vrdma_rpc_mkey_info_json(struct spdk_vrdma_rpc_mkey_msg *info,
+			 struct spdk_json_write_ctx *w, uint32_t request_id)
+{
+	spdk_json_write_object_begin(w);
+    spdk_json_write_named_uint32(w, "request_id", request_id);
+    spdk_json_write_named_uint64(w, "gid", info->mkey_attr.gid_ip);
+    spdk_json_write_named_uint32(w, "vqpn", info->mkey_attr.vqpn);
+    spdk_json_write_named_uint32(w, "vkey", info->mkey_attr.vkey);
+    spdk_json_write_named_uint32(w, "mkey", info->mkey_attr.mkey);
+    spdk_json_write_object_end(w);
+}
+
+static int
+spdk_vrdma_rpc_client_send_mkey_msg(
+            struct spdk_vrdma_rpc_mkey_msg *msg)
+{
+    struct spdk_vrdma_rpc_client *client = &g_vrdma_rpc.client;
+	struct spdk_jsonrpc_client_request *rpc_request;
+	struct spdk_json_write_ctx *w;
+    uint32_t request_id;
+	int rc;
+
+	rpc_request = spdk_jsonrpc_client_create_request();
+	if (!rpc_request) {
+        SPDK_ERRLOG("Failed to create request for vkey %d\n",
+            msg->mkey_attr.vkey);
+		goto out;
+	}
+	w = spdk_jsonrpc_begin_request(rpc_request, 1, g_vrdma_mkey_method_str);
+	if (!w) {
+		spdk_jsonrpc_client_free_request(rpc_request);
+        SPDK_ERRLOG("Failed to build request for vkey %d\n",
+            msg->mkey_attr.vkey);
+		goto out;
+	}
+    spdk_json_write_name(w, "params");
+    request_id = ++g_request_id ? g_request_id : ++g_request_id;
+    spdk_vrdma_rpc_mkey_info_json(msg, w, request_id);
+	spdk_jsonrpc_end_request(rpc_request, w);
+    spdk_jsonrpc_set_request_id(rpc_request, request_id);
+
+	rc = spdk_vrdma_client_send_request(client, rpc_request,
+            spdk_vrdma_client_mkey_resp_handler);
+	if (rc != 0) {
+        SPDK_ERRLOG("Failed to send request for vkey %d\n",
+            msg->mkey_attr.vkey);
+		goto out;
+	}
+    SPDK_NOTICELOG("mkey rpc msg: request_id =0x%x "
+    "gid_ip=0x%lx vqpn=%d vkey=0x%x mkey=0x%x\n",
+     request_id, msg->mkey_attr.gid_ip, msg->mkey_attr.vqpn,
+     msg->mkey_attr.vkey, msg->mkey_attr.mkey);
+    return 0;
+out:
+	spdk_vrdma_close_rpc_client(client);
+    return -1;
+}
+
+int spdk_vrdma_rpc_send_mkey_msg(const char *addr,
+                struct spdk_vrdma_rpc_mkey_msg *msg)
+{
+    if (spdk_vrdma_rpc_client_configuration(addr)) {
+        SPDK_ERRLOG("Failed to client configuration for vkey %d\n",
+            msg->mkey_attr.vkey);
+        return -1;
+    }
+    if (spdk_vrdma_rpc_client_send_mkey_msg(msg)) {
+        SPDK_ERRLOG("Failed to send request for vkey %d\n",
+            msg->mkey_attr.vkey);
+        return -1;
+    }
+    return 0;
+}
+
+static void
+spdk_vrdma_rpc_srv_mkey_req_handle(struct spdk_jsonrpc_request *request,
+            const struct spdk_json_val *params)
+{
+    struct spdk_vrdma_rpc_client *client = &g_vrdma_rpc.client;
+    struct spdk_vrdma_rpc_mkey_msg msg = {0};
+    struct spdk_vrdma_rpc_mkey_attr *attr;
+    struct spdk_json_write_ctx *w;
+    struct spdk_vrdma_qp *vqp;
+    struct spdk_emu_ctx *ctx;
+    struct vrdma_ctrl *ctrl;
+
+    /* If local client running and retry send requests. */
+    if (client->client_conn)
+        spdk_jsonrpc_client_resend_request(client->client_conn);
+
+    attr = calloc(1, sizeof(*attr));
+    if (!attr)
+        goto invalid;
+
+    if (spdk_json_decode_object(params,
+            spdk_vrdma_rpc_mkey_req_decoder,
+            SPDK_COUNTOF(spdk_vrdma_rpc_mkey_req_decoder),
+            attr)) {
+        SPDK_ERRLOG("Failed to decode parameters for \n");
+        goto invalid;
+    }
+    SPDK_NOTICELOG("Decode:mkey req msg: request_id =0x%x "
+    "gid_ip=0x%lx vqpn=%d vkey=0x%x mkey=0x%x\n",
+     attr->request_id, attr->gid_ip, attr->vqpn,
+     attr->vkey, attr->mkey);
+    msg.mkey_attr.request_id = attr->request_id;
+    msg.mkey_attr.gid_ip = attr->gid_ip;
+    msg.mkey_attr.vqpn = attr->vqpn;
+    msg.mkey_attr.vkey = attr->vkey;
+    msg.mkey_attr.mkey = 0;
+    if (attr->vkey >= VRDMA_DEV_MAX_MR) {
+        SPDK_ERRLOG("invalid vkey index %d \n", attr->vkey);
+        goto send_result;
+    }
+    /* Find device data by gid_ip */
+    ctx = spdk_emu_ctx_find_by_gid_ip(NULL, attr->gid_ip);
+    if (ctx) {
+        ctrl = ctx->ctrl;
+        if (!ctrl) {
+            SPDK_ERRLOG("Fail to find device controller for gid_ip 0x%lx\n",
+                attr->gid_ip);
+            goto send_result;
+        }
+    }
+    vqp = find_spdk_vrdma_qp_by_idx(ctrl, attr->vqpn);
+    if (!vqp) {
+        SPDK_ERRLOG("Fail to find vrdma_qpn %d for mkey\n",
+                    attr->vqpn);
+        goto send_result;
+    }
+    if (vqp->vpd != ctrl->vdev->l_vkey_tbl.vkey[attr->vkey].vpd)  {
+        SPDK_ERRLOG("Fail to match vpd vrdma_qpn %d for vkey 0x%x\n",
+                attr->vqpn, attr->vkey);
+        goto send_result;
+    }
+    msg.mkey_attr.mkey = ctrl->vdev->l_vkey_tbl.vkey[attr->vkey].mkey;
+    SPDK_NOTICELOG("Send mkey resp msg: request_id =0x%x "
+        "gid_ip=0x%lx vqpn=%d vkey=0x%x mkey=0x%x\n",
+        msg.mkey_attr.request_id, msg.mkey_attr.gid_ip, msg.mkey_attr.vqpn,
+        msg.mkey_attr.vkey, msg.mkey_attr.mkey);
+send_result:
+    w = spdk_jsonrpc_begin_result(request);
+    spdk_vrdma_rpc_mkey_info_json(&msg, w, attr->request_id);
+    spdk_jsonrpc_end_result(request, w);
+    free(attr);
+    return;
+
+invalid:
+    free(attr);
+    spdk_jsonrpc_send_error_response(request,
+                     SPDK_JSONRPC_ERROR_INVALID_PARAMS,
+                     "Invalid parameters");
+}
+
 static void
 spdk_vrdma_srv_rpc_handler(struct spdk_jsonrpc_request *request,
 		     const struct spdk_json_val *method,
@@ -771,6 +1038,8 @@ spdk_vrdma_rpc_server_configuration(void)
             srv->rpc_server, VRDMA_RPC_SELECT_INTERVAL);
     spdk_vrdma_rpc_register_method(g_vrdma_qp_method_str,
         spdk_vrdma_rpc_srv_qp_req_handle);
+    spdk_vrdma_rpc_register_method(g_vrdma_mkey_method_str,
+        spdk_vrdma_rpc_srv_mkey_req_handle);
 }
 
 /* Controller RPC configuration*/
@@ -997,6 +1266,7 @@ spdk_vrdma_rpc_vqp_info_json(struct vrdma_ctrl *ctrl,
 	spdk_json_write_named_uint64(w, "sq rx dma cnt", vqp->stats.sq_dma_rx_cnt);
 	spdk_json_write_named_uint64(w, "sq wqe fetched", vqp->stats.sq_wqe_fetched);
 	spdk_json_write_named_uint64(w, "sq wqe submitted", vqp->stats.sq_wqe_submitted);
+    spdk_json_write_named_uint64(w, "sq wqe mkey invalid", vqp->stats.sq_wqe_mkey_invalid);
 	spdk_json_write_named_uint64(w, "sq wqe wr submitted", vqp->stats.sq_wqe_wr);
 	spdk_json_write_named_uint64(w, "sq wqe atomic submitted", vqp->stats.sq_wqe_atomic);
 	spdk_json_write_named_uint64(w, "sq wqe ud submitted", vqp->stats.sq_wqe_ud);
