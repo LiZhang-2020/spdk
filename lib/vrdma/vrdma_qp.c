@@ -267,8 +267,8 @@ int vrdma_mqp_add_vqp_to_list(struct vrdma_backend_qp *mqp,
     LIST_INSERT_HEAD(&mqp->vqp_list, vqp_entry, entry);
     pthread_spin_unlock(&mqp->vqp_list_lock);
     mqp->vqp_cnt++;
-    //SPDK_NOTICELOG("vqp=0x%x, mqp=0x%x, mqp->vqp_cnt=%u\n",
-    //               vqp_idx, mqp->bk_qp.qpnum, mqp->vqp_cnt);
+    SPDK_NOTICELOG("vqp=%u, mqp=0x%x, mqp->vqp_cnt=%u\n",
+                   vqp_idx, mqp->bk_qp.qpnum, mqp->vqp_cnt);
     return 0;
 }
 
@@ -345,7 +345,7 @@ vrdma_create_backend_qp(struct vrdma_tgid_node *tgid_node,
     pthread_spin_init(&qp->vqp_list_lock, PTHREAD_PROCESS_PRIVATE);
     qp->tgid_node = tgid_node;
 	qp->pd = tgid_node->pd;
-	qp->poller_core = VRDMA_INVALID_POLLER_CORE;
+	qp->poller_core = mqp_idx;
 	qp->remote_qpn = VRDMA_INVALID_QPN;
 	qp->bk_qp.qp_attr.qp_type = SNAP_OBJ_DEVX;
 	qp->bk_qp.qp_attr.sq_size = VRDMA_BACKEND_QP_SQ_SIZE;

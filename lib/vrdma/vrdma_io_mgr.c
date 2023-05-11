@@ -2222,7 +2222,7 @@ static inline void vrdma_qp_post_wqe(struct spdk_vrdma_qp *vqp)
 		return;
 	}
 	if (spdk_unlikely(!vrdma_vq_get_mqp(vqp))) {
-		SPDK_ERRLOG("vrdma dpa rx, no backend qp is created for vqpn %d\n", vqp->qp_idx);
+		//SPDK_ERRLOG("vrdma dpa rx, no backend qp is created for vqpn %d\n", vqp->qp_idx);
 		return;
 	}
 
