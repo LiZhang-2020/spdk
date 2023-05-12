@@ -1578,16 +1578,17 @@ out:
 void vrdma_dpa_vq_is_stopped(void *vqp_hdl)
 {
 	struct spdk_vrdma_qp *vqp = vqp_hdl;
+	volatile uint16_t *mctx_fields;
 	
 	if (!vqp) {
 		return;
 	}
+	mctx_fields = &vqp->dpa_fields->mig_flags;
 	/* this flag is updated by DPA, here keep checking */
-	while (!(vqp->dpa_fields->mig_flags &
-			(1 << VRDMA_DPA_VQP_FLAGS_STOPPED_BIT))) {
-		continue;
+	while (!(*mctx_fields & (1 << VRDMA_DPA_VQP_FLAGS_STOPPED_BIT))) {
+		;
 	}
-	vqp->dpa_fields->mig_flags &= ~(1 << VRDMA_DPA_VQP_FLAGS_STOPPED_BIT);
+	*mctx_fields &= ~(1 << VRDMA_DPA_VQP_FLAGS_STOPPED_BIT);
 	return;
 }
 
