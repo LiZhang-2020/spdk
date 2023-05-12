@@ -79,6 +79,7 @@ uint64_t vrdma_qp_rpc_handler(uint64_t arg1)
 	ectx = (struct vrdma_dpa_event_handler_ctx *)vqp_ctx->eh_ctx_daddr;
 	vrdma_debug_count_set(ectx, 0);
 	mctx_fields = vqp_ctx->mctx.field;
+	flexio_dev_outbox_config(dtctx, ectx->emu_outbox);
 
 	printf("\n vrdma_qp_rpc_handler start, fields 0x%x\n", mctx_fields);
 	/* for vqp migration repost */
@@ -142,7 +143,6 @@ uint64_t vrdma_qp_rpc_handler(uint64_t arg1)
 	ectx->vqp_ctx_hdl[vqp_ctx->emu_db_to_cq_id].valid = valid;
 	spin_unlock(&ectx->vqp_array_lock);
 	//vrdma_debug_value_set(ectx, 7, vqp_ctx->emu_db_to_cq_id);
-	flexio_dev_outbox_config(dtctx, ectx->emu_outbox);
 	flexio_dev_db_ctx_arm(dtctx, ectx->guest_db_cq_ctx.cqn,
 				      vqp_ctx->emu_db_to_cq_id);
 	flexio_dev_cq_arm(dtctx, ectx->guest_db_cq_ctx.ci,
