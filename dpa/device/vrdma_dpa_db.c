@@ -381,6 +381,7 @@ vrdma_dpa_handle_one_vqp(struct flexio_dev_thread_ctx *dtctx,
 	uint16_t total_wqe = 0;
 	uint16_t wqe_loop = 0;
 	uint16_t arm_flags = 0, wqe_flags = 0;
+	volatile uint16_t mctx_fields;
 
 	vqp_ctx = (struct vrdma_dpa_vqp_ctx *)vqp_daddr;
 
@@ -398,11 +399,16 @@ vrdma_dpa_handle_one_vqp(struct flexio_dev_thread_ctx *dtctx,
 			vqp_ctx->host_vq_ctx.sq_wqebb_cnt, vqp_ctx->host_vq_ctx.sq_wqebb_size,
 			vqp_ctx->host_vq_ctx.emu_crossing_mkey, vqp_ctx->host_vq_ctx.sf_crossing_mkey);
 #endif
-	if (vqp_ctx->mctx.field & (1 << VRDMA_DPA_VQP_MOD_STOP_FETCH_BIT)) {
+	mctx_fields = vqp_ctx->mctx.field;
+	if (mctx_fields & (1 << VRDMA_DPA_VQP_MOD_STOP_FETCH_BIT)) {
 		printf("test, stop dpa wqe fetch\n");
 		arm_flags |= 1 << VRDMA_DPA_VQP_FLAGS_STOPPED_BIT;
 		wqe_flags |= VRDMA_DPA_WQE_INLINE;
 		vrdma_dpa_sq_update_flags(ehctx, vqp_ctx, arm_flags, wqe_flags);
+		flexio_dev_dbr_sq_set_pi((uint32_t *)ehctx->dma_qp.dbr_daddr + 1,
+								ehctx->dma_qp.hw_qp_sq_pi);
+		flexio_dev_qp_sq_ring_db(dtctx, ehctx->dma_qp.hw_qp_sq_pi,
+								ehctx->dma_qp.qp_num);
 		return 0;
 	}
 	
