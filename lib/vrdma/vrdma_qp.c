@@ -522,7 +522,7 @@ int vrdma_create_vq(struct vrdma_ctrl *ctrl,
 		VRDMA_QP_WQEBB_BASE_SIZE * (aqe->req.create_qp_req.rq_wqebb_size + 1);
 	vqp->rq.comm.wqebb_cnt = 1 << aqe->req.create_qp_req.log_rq_wqebb_cnt;
 	rq_buff_size = vqp->rq.comm.wqebb_size * vqp->rq.comm.wqebb_cnt;
-	q_buff_size = sizeof(*vqp->qp_pi) + rq_buff_size;
+	q_buff_size = sizeof(*vqp->qp_pi) + sizeof(*vqp->dpa_fields) + rq_buff_size;
 	vqp->sq.comm.wqebb_size =
 		VRDMA_QP_WQEBB_BASE_SIZE * (aqe->req.create_qp_req.sq_wqebb_size + 1);
 	vqp->sq.comm.wqebb_cnt = 1 << aqe->req.create_qp_req.log_sq_wqebb_cnt;
@@ -539,10 +539,12 @@ int vrdma_create_vq(struct vrdma_ctrl *ctrl,
 		SPDK_ERRLOG("Failed to allocate wqe buff");
         goto destroy_dma;
     }
-	vqp->rq.rq_buff = (struct vrdma_recv_wqe *)((uint8_t *)vqp->qp_pi + sizeof(*vqp->qp_pi));
+	vqp->dpa_fields = (struct dpa_updated_fields *)((uint8_t *)vqp->qp_pi + sizeof(*vqp->qp_pi));
+	vqp->rq.rq_buff = (struct vrdma_recv_wqe *)((uint8_t *)vqp->dpa_fields + sizeof(*vqp->dpa_fields));
 	vqp->sq.sq_buff = (struct vrdma_send_wqe *)((uint8_t *)vqp->rq.rq_buff + rq_buff_size);
 	vqp->sq.meta_buff = (struct vrdma_sq_meta *)((uint8_t *)vqp->sq.sq_buff + sq_buff_size);
 	vqp->sq.local_cq_buff = (struct vrdma_cqe *)((uint8_t *)vqp->sq.meta_buff + sq_meta_size);
+
     vqp->qp_mr = ibv_reg_mr(ctrl->pd, vqp->qp_pi, q_buff_size,
                     IBV_ACCESS_REMOTE_READ |
                     IBV_ACCESS_REMOTE_WRITE |

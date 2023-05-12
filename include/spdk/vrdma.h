@@ -152,7 +152,11 @@ union vrdma_align_pici {
 		uint16_t rq_pi;
 	} pi;
 	uint32_t ci;
-	uint16_t handle_flags;
+};
+
+struct dpa_updated_fields {
+	uint16_t mig_flags;
+	uint8_t pad[6];
 };
 
 struct spdk_vrdma_cq {
@@ -326,6 +330,7 @@ struct spdk_vrdma_qp {
 	struct vrdma_sq sq;
 	struct ibv_mr *qp_mr;
 	union vrdma_align_pici *qp_pi;
+	struct dpa_updated_fields *dpa_fields;
 	struct vrdma_qp_stats stats;
 	uint16_t local_pi;
 	uint16_t sw_state;

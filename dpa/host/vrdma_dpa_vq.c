@@ -738,7 +738,7 @@ vrdma_set_dpa_vqp_attr(struct vrdma_prov_vqp_init_attr *attr,
 	attr->arm_vq_ctx.rq_buff_addr = (uint64_t)vqp->rq.rq_buff;
 	attr->arm_vq_ctx.sq_buff_addr = (uint64_t)vqp->sq.sq_buff;
 	attr->arm_vq_ctx.sq_pi_addr = (uint64_t)&vqp->qp_pi->pi.sq_pi;
-	attr->arm_vq_ctx.handle_flags_addr = (uint64_t)&vqp->qp_pi->handle_flags;
+	attr->arm_vq_ctx.handle_flags_addr = (uint64_t)&vqp->dpa_fields->mig_flags;
 	attr->arm_vq_ctx.rq_lkey      = vqp->qp_mr->lkey;
 	attr->arm_vq_ctx.sq_lkey      = vqp->qp_mr->lkey;
 
@@ -1578,15 +1578,16 @@ out:
 void vrdma_dpa_vq_is_stopped(void *vqp_hdl)
 {
 	struct spdk_vrdma_qp *vqp = vqp_hdl;
+	
 	if (!vqp) {
 		return;
 	}
 	/* this flag is updated by DPA, here keep checking */
-	while (!(vqp->qp_pi->handle_flags &
+	while (!(vqp->dpa_fields->mig_flags &
 			(1 << VRDMA_DPA_VQP_FLAGS_STOPPED_BIT))) {
 		continue;
 	}
-	vqp->qp_pi->handle_flags &= ~(1 << VRDMA_DPA_VQP_FLAGS_STOPPED_BIT);
+	vqp->dpa_fields->mig_flags &= ~(1 << VRDMA_DPA_VQP_FLAGS_STOPPED_BIT);
 	return;
 }
 
