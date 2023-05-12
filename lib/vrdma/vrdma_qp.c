@@ -253,6 +253,10 @@ int vrdma_mqp_add_vqp_to_list(struct vrdma_backend_qp *mqp,
                               uint32_t vqp_idx)
 {
     struct vrdma_vqp *vqp_entry = NULL;
+    if (!mqp) {
+        SPDK_ERRLOG("null mqp!");
+        return -1;
+    }
     vqp_entry = calloc(1, sizeof(struct vrdma_vqp));
     if (!vqp_entry) {
         SPDK_ERRLOG("Failed to allocate qpn memory");
@@ -267,8 +271,8 @@ int vrdma_mqp_add_vqp_to_list(struct vrdma_backend_qp *mqp,
     LIST_INSERT_HEAD(&mqp->vqp_list, vqp_entry, entry);
     pthread_spin_unlock(&mqp->vqp_list_lock);
     mqp->vqp_cnt++;
-    SPDK_NOTICELOG("vqp=%u, mqp=0x%x, mqp->vqp_cnt=%u\n",
-                   vqp_idx, mqp->bk_qp.qpnum, mqp->vqp_cnt);
+    SPDK_NOTICELOG("vqp=%u, mqp=0x%x, mqp_idx=%u mqp->vqp_cnt=%u\n",
+                   vqp_idx, mqp->bk_qp.qpnum, mqp->poller_core, mqp->vqp_cnt);
     return 0;
 }
 
@@ -385,8 +389,8 @@ int vrdma_query_bankend_qp_next_rcv_psn(struct vrdma_backend_qp *bk_qp,
                     bk_qp->bk_qp.qpnum);
         return -1;
     }
-    SPDK_NOTICELOG("Succeeded to query bankend QP=0x%x next_rcv_psn=%u",
-                   bk_qp->bk_qp.qpnum, *next_rcv_psn);
+    //SPDK_NOTICELOG("Succeeded to query bankend QP=0x%x next_rcv_psn=%u",
+                   //bk_qp->bk_qp.qpnum, *next_rcv_psn);
     return 0;
 }
 
@@ -401,8 +405,8 @@ int vrdma_modify_backend_qp_to_err(struct vrdma_backend_qp *bk_qp)
         return -1;
     }
     bk_qp->qp_state = IBV_QPS_ERR;
-    SPDK_NOTICELOG("Succeeded to modify bankend QP=0x%x to error",
-                   bk_qp->bk_qp.qpnum);
+    SPDK_NOTICELOG("Succeeded to modify bankend QP=0x%x idx=%u to error",
+                   bk_qp->bk_qp.qpnum, bk_qp->poller_core);
     return 0;
 }
 
@@ -468,9 +472,9 @@ int vrdma_modify_backend_qp_to_rts(struct vrdma_backend_qp *bk_qp)
 		return -1;
 	}
 	bk_qp->qp_state = IBV_QPS_RTS;
-	SPDK_NOTICELOG("Succeeded to modify bankend QP=0x%x RTR to RTS.\n"
+	SPDK_NOTICELOG("Succeeded to modify bankend QP=0x%x idx=%u RTR to RTS.\n"
                    "min_rnr_timer %d retry_cnt %d rnr_retry %d timeout %d\n",
-	bk_qp->bk_qp.qpnum, qp_attr.min_rnr_timer,
+	bk_qp->bk_qp.qpnum, bk_qp->poller_core, qp_attr.min_rnr_timer,
 	qp_attr.retry_cnt, qp_attr.rnr_retry, qp_attr.timeout);
 	return 0;
 }
@@ -660,6 +664,9 @@ void vrdma_set_rpc_msg_with_mqp_info(struct vrdma_ctrl *ctrl,
                                      struct spdk_vrdma_rpc_qp_msg *msg)
 {
     struct vrdma_backend_qp *mqp = tgid_node->src_udp[mqp_idx].mqp;
+    if (!mqp)
+        return;
+    vrdma_query_bankend_qp_next_rcv_psn(mqp, &mqp->mig_ctx.mig_lnxt_rcv_psn);
     msg->emu_manager = ctrl->emu_manager;
     memcpy(&msg->sf_mac, &tgid_node->ctrl->vdev->vrdma_sf.mac, 6);
     msg->bk_qpn = mqp->bk_qp.qpnum;

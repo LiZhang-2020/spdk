@@ -67,6 +67,7 @@ vrdma_mig_vqp_add_to_list(struct spdk_vrdma_qp *vqp)
     pthread_spin_lock(&vrdma_mig_vqp_list_lock);
     LIST_INSERT_HEAD(&vrdma_mig_vqp_list, vqp_entry, entry);
     pthread_spin_unlock(&vrdma_mig_vqp_list_lock);
+    SPDK_NOTICELOG("vqp=%u", vqp->qp_idx);
     return 0;
 }
 
@@ -118,16 +119,31 @@ vrdma_vqp_mig_start(struct spdk_vrdma_qp *vqp)
 
     tgid_node = vqp->bk_qp->tgid_node;
     vqp->mig_ctx.mig_mqp = vrdma_find_mqp_by_depth(tgid_node, &mqp_idx);
-    SPDK_NOTICELOG("new mqp=%p, idx=%u", vqp->mig_ctx.mig_mqp, mqp_idx);
+    SPDK_NOTICELOG("<tid %d> vqp=%u new mqp=%p, idx=%u",
+                   gettid(), vqp->qp_idx, vqp->mig_ctx.mig_mqp, mqp_idx);
     vrdma_desched_vq_nolock(vqp);
     vqp->mig_ctx.mig_start_ts = spdk_get_ticks();
     vrdma_mig_vqp_add_to_list(vqp);
 }
 
+void vrdma_mig_set_repost_state(struct vrdma_backend_qp *mqp)
+{
+    struct vrdma_vqp *vqp_entry = NULL;
+
+    pthread_spin_lock(&mqp->vqp_list_lock);
+    LIST_FOREACH(vqp_entry, &mqp->vqp_list, entry) {
+        vqp_entry->vqp->mig_ctx.mig_state = MIG_START;
+        vqp_entry->vqp->mig_ctx.mig_repost = MIG_REPOST_SET;
+        SPDK_NOTICELOG("<tid %d> vqp=%u set mig_state=MIG_START",
+                       gettid(), vqp_entry->vqp->qp_idx);
+    }
+    pthread_spin_unlock(&mqp->vqp_list_lock);
+    return;
+}
+
 void vrdma_mig_handle_sm(struct spdk_vrdma_qp *vqp)
 {
     struct vrdma_tgid_node *tgid_node = NULL;
-    struct vrdma_vqp *vqp_entry = NULL;
     uint8_t mqp_idx;
     int ret;
 
@@ -138,16 +154,9 @@ void vrdma_mig_handle_sm(struct spdk_vrdma_qp *vqp)
     switch (vqp->mig_ctx.mig_state) {
     case MIG_START:
         if (vqp->bk_qp->qp_state == IBV_QPS_ERR) {
-            /* the 1st vqp found mqp err will move all vqp to mig list */
-            pthread_spin_lock(&vqp->bk_qp->vqp_list_lock);
-            LIST_FOREACH(vqp_entry, &vqp->bk_qp->vqp_list, entry) {
-                vqp_entry->vqp->mig_ctx.mig_state = MIG_START;
-                vqp_entry->vqp->mig_ctx.mig_repost = MIG_REPOST_SET;
-                ret = vrdma_dpa_set_vq_stop_fetch(vqp_entry->vqp);
-                SPDK_NOTICELOG("vrdma_dpa_set_vq_stop_fetch ret=%d", ret);
-                vrdma_vqp_mig_start(vqp_entry->vqp);
-            }
-            pthread_spin_unlock(&vqp->bk_qp->vqp_list_lock);
+            ret = vrdma_dpa_set_vq_stop_fetch(vqp);
+            SPDK_NOTICELOG("vrdma_dpa_set_vq_stop_fetch ret=%d", ret);
+            vrdma_vqp_mig_start(vqp);
         }
         break;
     case MIG_PREPARE:
@@ -175,7 +184,7 @@ void vrdma_mig_handle_sm(struct spdk_vrdma_qp *vqp)
     return;
 }
 
-static int32_t 
+static void
 vrdma_mig_handle_rnxt_rcv_psn(struct vrdma_ctrl *ctrl,
                               struct vrdma_tgid_node *tgid_node,
                               struct vrdma_backend_qp *mqp)
@@ -187,18 +196,9 @@ vrdma_mig_handle_rnxt_rcv_psn(struct vrdma_ctrl *ctrl,
             SPDK_ERRLOG("failed to send rpc to query mqp=0x%x "
                     "state=0x%x peer mqp.next_rcv_psn\n",
                     mqp->bk_qp.qpnum, mqp->qp_state);
-            return 1;
+            return;
         }
     }
-    if (mqp->mig_ctx.mig_rnxt_rcv_psn_state == MIG_REQ_SENT) {
-        SPDK_NOTICELOG("waiting for mig_rnxt_rcv_psn response msg");
-        return 2;
-    }
-    /* inform dpa */
-    if (mqp->mig_ctx.mig_rnxt_rcv_psn_state == MIG_RESP_RCV) {
-        vrdma_mig_set_repost_pi(mqp);
-    }
-    return 0;
 }
 
 void vrdma_mig_set_mqp_pmtu(struct vrdma_backend_qp *mqp,
@@ -245,8 +245,22 @@ int32_t vrdma_mig_set_repost_pi(struct vrdma_backend_qp *mqp)
         mqp_pi += mqp_sq_size;
     }
     rnxt_rcv_psn = mqp->mig_ctx.mig_rnxt_rcv_psn;
-    SPDK_NOTICELOG("mqp.mig_rnxt_rcv_psn=%u, sq_ci=%u, sq_pi=%u\n",
-                   rnxt_rcv_psn, mqp_ci, mqp_pi);
+    SPDK_NOTICELOG("mqp.mig_rnxt_rcv_psn=%u, msg_1st_psn=%u sq_ci=%u, sq_pi=%u\n",
+                   rnxt_rcv_psn, mqp->mig_ctx.msg_1st_psn, mqp_ci, mqp_pi);
+    if (rnxt_rcv_psn == mqp->mig_ctx.msg_1st_psn) {
+        /* all have been submitted in peer memory,no need repost */
+        pthread_spin_lock(&mqp->vqp_list_lock);
+        LIST_FOREACH(vqp_entry, &mqp->vqp_list, entry) {
+            vqp_entry->vqp->mig_ctx.mig_repost = MIG_REPOST_INIT;
+            /* has to inform dpa to start working */
+            vrdma_dpa_set_vq_repost_pi(vqp_entry->vqp, vqp_entry->vqp->sq.comm.pre_pi);
+            SPDK_NOTICELOG("vqp=%u, mig_repost=%u vrdma_dpa_set_vq_repost_pi=%u",
+                    vqp_entry->vqp->qp_idx, vqp_entry->vqp->mig_ctx.mig_repost,
+                    vqp_entry->vqp->sq.comm.pre_pi);
+        }
+        pthread_spin_unlock(&mqp->vqp_list_lock);
+        return 0;
+    }
     /* 1: find the 1st wqe and its vqp that need repost */
     for (i = mqp_ci - 1; i < mqp_pi; i++) {
         sq_meta = &mqp->sq_meta_buf[i & (mqp_sq_size - 1)];
@@ -261,7 +275,7 @@ int32_t vrdma_mig_set_repost_pi(struct vrdma_backend_qp *mqp)
             sq_meta->vqp->mig_ctx.mig_repost_pi = sq_meta->twqe_idx;
             sq_meta->vqp->mig_ctx.mig_repost_offset = rnxt_rcv_psn - sq_meta->first_psn;
             /* rollback pi and pre_pi */
-            //vrdma_dpa_vq_is_stopped(sq_meta->vqp);
+            vrdma_dpa_vq_is_stopped(sq_meta->vqp);
             sq_meta->vqp->qp_pi->pi.sq_pi = sq_meta->twqe_idx;
             sq_meta->vqp->sq.comm.pre_pi = sq_meta->twqe_idx;
             sq_meta->vqp->mig_ctx.mig_repost = MIG_REPOST_START;
@@ -282,7 +296,7 @@ int32_t vrdma_mig_set_repost_pi(struct vrdma_backend_qp *mqp)
         if (sq_meta->vqp->mig_ctx.mig_repost == MIG_REPOST_SET) {
             sq_meta->vqp->mig_ctx.mig_repost_pi = sq_meta->twqe_idx;
             /* rollback pi and pre_pi */
-            //vrdma_dpa_vq_is_stopped(sq_meta->vqp);
+            vrdma_dpa_vq_is_stopped(sq_meta->vqp);
             sq_meta->vqp->qp_pi->pi.sq_pi = sq_meta->twqe_idx;
             sq_meta->vqp->sq.comm.pre_pi = sq_meta->twqe_idx;
             sq_meta->vqp->mig_ctx.mig_repost = MIG_REPOST_START;
@@ -365,16 +379,14 @@ vrdma_migration_progress(struct vrdma_ctrl *ctrl)
     pthread_spin_lock(&vrdma_mig_vqp_list_lock);
     LIST_FOREACH_SAFE(vqp_entry, &vrdma_mig_vqp_list, entry, tmp_entry) {
         vqp = vqp_entry->vqp;
-        SPDK_NOTICELOG("vqp=0x%x, mig_repost=0x%x",
-                       vqp->qp_idx, vqp->mig_ctx.mig_repost);
+        SPDK_NOTICELOG("<tid=%d> vqp=0x%x, mig_repost=0x%x",
+                       gettid(), vqp->qp_idx, vqp->mig_ctx.mig_repost);
         old_mqp = vqp->bk_qp;
         tgid_node = old_mqp->tgid_node;
 
-        if (vqp->mig_ctx.mig_repost) {
-            if (vrdma_mig_handle_rnxt_rcv_psn(tgid_node->ctrl, tgid_node, old_mqp)) {
-                SPDK_NOTICELOG("rnxt_rcv_psn is not ready, waiting\n");
-                continue;
-            }
+        if (vqp->mig_ctx.mig_repost == MIG_REPOST_SET) {
+            vrdma_mig_handle_rnxt_rcv_psn(tgid_node->ctrl, tgid_node, old_mqp);
+            continue;
         }
         LIST_REMOVE(vqp_entry, entry);
         free(vqp_entry);
@@ -384,6 +396,7 @@ vrdma_migration_progress(struct vrdma_ctrl *ctrl)
         pg = &tgid_node->ctrl->sctrl->pg_ctx.pgs[vqp->pre_bk_qp->poller_core];
         pg->id = vqp->pre_bk_qp->poller_core;
         vqp->mig_ctx.mig_state = MIG_IDLE;
+        vqp->mig_ctx.mig_mqp = NULL;
         if (vrdma_sched_vq(tgid_node->ctrl->sctrl, vqp, pg)) {
             SPDK_ERRLOG("vqp=%u failed to join poller group \n", vqp->qp_idx);
             return -1;

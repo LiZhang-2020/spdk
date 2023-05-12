@@ -983,9 +983,9 @@ static void vrdma_aq_modify_qp(struct vrdma_ctrl *ctrl,
 {
 	struct spdk_vrdma_qp *vqp = NULL;
 
-	//SPDK_NOTICELOG("vqp %d qp_attr_mask = 0x%x\n",
-	//			aqe->req.modify_qp_req.qp_handle,
-	//			aqe->req.modify_qp_req.qp_attr_mask);
+	SPDK_NOTICELOG("<tid %d> vqp %d qp_attr_mask = 0x%x\n",
+				gettid(), aqe->req.modify_qp_req.qp_handle,
+				aqe->req.modify_qp_req.qp_attr_mask);
 	if (!g_vqp_cnt || !ctrl->vdev ||
 		!ctrl->vdev->vqp_cnt) {
 		aqe->resp.modify_qp_resp.err_code =

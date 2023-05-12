@@ -1070,12 +1070,14 @@ static bool vrdma_qp_wqe_sm_submit(struct spdk_vrdma_qp *vqp,
 			case MLX5_OPCODE_RDMA_READ:
 			case MLX5_OPCODE_RDMA_WRITE:
 			case MLX5_OPCODE_RDMA_WRITE_IMM:
-			    if (i == 0 && vqp->mig_ctx.mig_repost == MIG_REPOST_START &&
-			        vqp->mig_ctx.mig_repost_offset) {
-			        vrdma_mig_reassemble_wqe(wqe, vqp->mig_ctx.mig_repost_offset,
-			                                 mqp->mig_ctx.mig_pmtu);
+			    if (i == 0 && vqp->mig_ctx.mig_repost == MIG_REPOST_START) {
+                    if (vqp->mig_ctx.mig_repost_offset) {
+                        vrdma_mig_reassemble_wqe(wqe, vqp->mig_ctx.mig_repost_offset,
+                                mqp->mig_ctx.mig_pmtu);
+                    }
 			        /* clear repost flag */
-                    vqp->mig_ctx.mig_repost == MIG_REPOST_INIT;
+                    vqp->mig_ctx.mig_repost = MIG_REPOST_INIT;
+                    SPDK_NOTICELOG("vqp %u, 1st wqe after mig", vqp->qp_idx);
 			    }
 				vrdma_rw_wqe_submit(wqe, vqp, backend_qp, opcode, i);
 				if (vqp->sm_state != VRDMA_QP_STATE_MKEY_WAIT)
@@ -2079,10 +2081,9 @@ static void vrdma_qp_handle_completion(struct vrdma_backend_qp *bk_qp)
                     goto null_cqe;
                 } else if (ecqe->syndrome == MLX5_CQE_SYNDROME_TRANSPORT_RETRY_EXC_ERR ||
                            ecqe->syndrome == MLX5_CQE_SYNDROME_WR_FLUSH_ERR) {
-                    comp_vqp->mig_ctx.mig_repost = MIG_REPOST_SET;
-                    comp_vqp->mig_ctx.mig_state = MIG_START;
                     comp_vqp->sq_ci = sq_meta->twqe_idx + 1;
                     bk_qp->bk_qp.sq_ci = vrdma_get_wqe_id(bk_qp, cqe->wqe_counter) + 1;
+                    vrdma_mig_set_repost_state(bk_qp);
                     goto null_cqe;
                 }
             }

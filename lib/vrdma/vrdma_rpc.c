@@ -303,7 +303,7 @@ spdk_vrdma_set_qp_attr(struct vrdma_ctrl *ctrl,
     rdy_attr->rgid_rip = &attr->local_mgid;
     rdy_attr->src_addr_index = VRDMA_MQP_SRC_ADDR_INDEX;
     rdy_attr->udp_src_port = tgid_node->src_udp[attr->mqp_idx].udp_src_port;
-#ifdef MPATH_DBG
+#if 0 
     SPDK_NOTICELOG("dest_mac=%2x%2x%2x%2x%2x%2x\n"
                    "rgid_rip.global.interface_id=%llx\n"
                    "rgid_rip.global.subnet_prefix=%llx\n"
@@ -347,9 +347,9 @@ spdk_vrdma_client_qp_resp_handler(struct spdk_vrdma_rpc_client *client,
         SPDK_ERRLOG("Failed to decode result for qp_msg\n");
         goto free_attr;
     }
-    SPDK_NOTICELOG("emu_manager %s request_id=0x%x sf_mac=0x%lx bk_qpn =0x%x "
+    SPDK_NOTICELOG("<tid %d> emu_manager %s request_id=0x%x sf_mac=0x%lx bk_qpn =0x%x "
                    "qp_state=0x%x mqp_idx =0x%x next_rcv_psn=%u \n",
-                   attr->emu_manager, attr->request_id, attr->sf_mac, attr->bk_qpn,
+                   gettid(), attr->emu_manager, attr->request_id, attr->sf_mac, attr->bk_qpn,
                    attr->qp_state, attr->mqp_idx, attr->next_rcv_psn);
 
     ctx = spdk_emu_ctx_find_by_gid_ip(attr->emu_manager, attr->remote_mgid.global.interface_id);
@@ -372,6 +372,7 @@ spdk_vrdma_client_qp_resp_handler(struct spdk_vrdma_rpc_client *client,
     if (is_vrdma_vqp_migration_enable() && mqp->qp_state == IBV_QPS_ERR) {
         mqp->mig_ctx.mig_rnxt_rcv_psn = attr->next_rcv_psn;
         mqp->mig_ctx.mig_rnxt_rcv_psn_state = MIG_RESP_RCV;
+        vrdma_mig_set_repost_pi(mqp);
     } else if (mqp->qp_state != IBV_QPS_RTS) {
         if (mqp->qp_state == IBV_QPS_INIT) {
             spdk_vrdma_set_qp_attr(ctrl, tgid_node, attr, &qp_attr, &attr_mask, &rdy_attr);
@@ -670,15 +671,20 @@ spdk_vrdma_rpc_srv_qp_req_handle(struct spdk_jsonrpc_request *request,
             goto invalid;
         set_spdk_vrdma_bk_qp_active(mqp);
     }
-    if (attr->qp_state == IBV_QPS_ERR) {
-        /* to query local nxt_rcv_psn, only happen when migration is enabled */
-        if (!is_vrdma_vqp_migration_enable()) {
-            SPDK_ERRLOG("migration disabled, should not recv such msg\n");
-            goto invalid;
-        }
-        vrdma_query_bankend_qp_next_rcv_psn(mqp, &mqp->mig_ctx.mig_lnxt_rcv_psn);
-    }
     vrdma_set_rpc_msg_with_mqp_info(ctrl, tgid_node, attr->mqp_idx, &msg);
+    if (is_vrdma_vqp_migration_enable() && attr->qp_state == IBV_QPS_ERR) {
+        if (mqp->vqp_cnt) {
+            mqp->qp_state = IBV_QPS_ERR;
+            mqp->mig_ctx.mig_rnxt_rcv_psn = attr->next_rcv_psn;
+            mqp->mig_ctx.mig_rnxt_rcv_psn_state = MIG_RESP_RCV;
+            vrdma_mig_set_repost_state(mqp);
+            vrdma_mig_set_repost_pi(mqp);
+        } else {
+            tgid_node->src_udp[attr->mqp_idx].mqp = NULL;
+            vrdma_destroy_backend_qp(&mqp);
+            tgid_node->curr_mqp_cnt--;
+        }
+    }
 
     w = spdk_jsonrpc_begin_result_with_method(request, g_vrdma_qp_method_str);
     msg.emu_manager = attr->emu_manager;

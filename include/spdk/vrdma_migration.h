@@ -69,6 +69,7 @@ void vrdma_mig_mqp_depth_sampling(struct vrdma_backend_qp *mqp);
 void vrdma_mig_handle_sm(struct spdk_vrdma_qp *vqp);
 void vrdma_mig_set_mqp_pmtu(struct vrdma_backend_qp *mqp,
                             struct ibv_qp_attr *qp_attr);
+void vrdma_mig_set_repost_state(struct vrdma_backend_qp *mqp);
 int32_t vrdma_mig_set_repost_pi(struct vrdma_backend_qp *mqp);
 void
 vrdma_mig_reassemble_wqe(struct vrdma_send_wqe *wqe,
