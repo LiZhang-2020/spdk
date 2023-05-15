@@ -1458,9 +1458,9 @@ static void vrdma_dpa_vq_dbg_stats_query(struct vrdma_dpa_thread_ctx *dpa_thread
 	log_notice("counter[2] into db num: %d", host_data->ehctx.debug_data.counter[2]);
 	log_notice("counter[3] out db num: %d", host_data->ehctx.debug_data.counter[3]);
 	log_notice("counter[4] qp exceeds budget: %d", host_data->ehctx.debug_data.counter[4]);
-	log_notice("counter[5] get cqe num: %d", host_data->ehctx.debug_data.counter[5]);
-	log_notice("counter[6] fetch qp num: %d", host_data->ehctx.debug_data.counter[6]);
-	log_notice("counter[7] set dma qp ce bit num: %d", host_data->ehctx.debug_data.counter[7]);
+	log_notice("counter[5] repost pi cnt: %d", host_data->ehctx.debug_data.counter[5]);
+	log_notice("counter[6] stop fetch wqe: %d", host_data->ehctx.debug_data.counter[6]);
+	log_notice("counter[7] stopped vqp: %d", host_data->ehctx.debug_data.counter[7]);
 
 	log_notice("value[0] total fetched wqes: %d", host_data->ehctx.debug_data.value[0]);
 	log_notice("value[1] non dbr cqe num: %d", host_data->ehctx.debug_data.value[1]);
