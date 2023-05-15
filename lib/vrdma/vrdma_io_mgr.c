@@ -2075,8 +2075,11 @@ static void vrdma_qp_handle_completion(struct vrdma_backend_qp *bk_qp)
             bk_qp->qp_state = IBV_QPS_ERR;
             if (is_vrdma_vqp_migration_enable()) {
                 struct mlx5_err_cqe *ecqe = (struct mlx5_err_cqe *)cqe;
-                SPDK_NOTICELOG("vqp=%u got err cqe synd=0x%x sq_ci=%u mqp.sq_ci=%u\n",
-                                comp_vqp->qp_idx, ecqe->syndrome, comp_vqp->sq_ci, bk_qp->bk_qp.sq_ci);
+                SPDK_NOTICELOG("vqp=%u got err cqe synd=0x%x sq_ci=%u on"
+                                "mqp 0x%x idx=%u mqp.sq_ci=%u\n",
+                                comp_vqp->qp_idx, ecqe->syndrome,
+                                comp_vqp->sq_ci, bk_qp->bk_qp.qpnum,
+                                bk_qp->poller_core, bk_qp->bk_qp.sq_ci);
                 if (comp_vqp->mig_ctx.mig_repost) {
                     goto null_cqe;
                 } else if (ecqe->syndrome == MLX5_CQE_SYNDROME_TRANSPORT_RETRY_EXC_ERR ||
