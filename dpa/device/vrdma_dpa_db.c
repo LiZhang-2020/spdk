@@ -401,7 +401,7 @@ vrdma_dpa_handle_one_vqp(struct flexio_dev_thread_ctx *dtctx,
 #endif
 	mctx_fields = vqp_ctx->mctx.field;
 	if (mctx_fields & (1 << VRDMA_DPA_VQP_MOD_STOP_FETCH_BIT)) {
-		printf("test, stop dpa wqe fetch\n");
+		vrdma_debug_count_set(ehctx, 7);
 		arm_flags |= 1 << VRDMA_DPA_VQP_FLAGS_STOPPED_BIT;
 		wqe_flags |= VRDMA_DPA_WQE_INLINE;
 		vrdma_dpa_sq_update_flags(ehctx, vqp_ctx, arm_flags, wqe_flags);
@@ -430,7 +430,7 @@ vrdma_dpa_handle_one_vqp(struct flexio_dev_thread_ctx *dtctx,
 		
 		if (wqe_loop >= VRDMA_VQP_LOOP_BUDGET ||
 			total_wqe >= VRDMA_VQP_WQE_BUDGET ) {
-			vrdma_debug_count_set(ehctx, 6);
+			vrdma_debug_count_set(ehctx, 4);
 			vrdma_arm_force_trigger_emu(dtctx, ehctx->guest_db_cq_ctx.cqn,
 			      						vqp_ctx->emu_db_to_cq_id);
 			goto out;
@@ -534,7 +534,6 @@ void vrdma_db_handler(flexio_uintptr_t thread_arg)
 		if (db_cqe) {
 			null_db_cqe_cnt = 0;
 			handled_cqe_num++;
-			//vrdma_debug_count_set(ehctx, 5);
 			emu_db_hdl = be32_to_cpu(db_cqe->emu_db_handle);
 			vqp_ctx = ehctx->vqp_ctx_hdl[emu_db_hdl].valid ?  \
 						(struct vrdma_dpa_vqp_ctx *)ehctx->vqp_ctx_hdl[emu_db_hdl].vqp_ctx_handle : NULL;
@@ -550,7 +549,6 @@ void vrdma_db_handler(flexio_uintptr_t thread_arg)
 				flexio_dev_db_ctx_force_trigger(dtctx,
 												ehctx->guest_db_cq_ctx.cqn,
 												be32_to_cpu(db_cqe->emu_db_handle));
-				vrdma_debug_count_set(ehctx, 6);
 			}
 		} else {
 			null_db_cqe_cnt++;

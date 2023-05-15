@@ -72,7 +72,7 @@ uint64_t vrdma_qp_rpc_handler(uint64_t arg1)
 	volatile uint16_t mctx_fields;
 	
 #ifdef VRDMA_RPC_TIMEOUT_ISSUE_DEBUG
-	printf("\n vrdma_qp_rpc_handler start\n");
+	printf("\n vrdma_qp_rpc_handler start, fields 0x%x\n", mctx_fields);
 #endif
 	flexio_dev_get_thread_ctx(&dtctx);
 	vqp_ctx = (struct vrdma_dpa_vqp_ctx *)arg1;
@@ -81,10 +81,11 @@ uint64_t vrdma_qp_rpc_handler(uint64_t arg1)
 	mctx_fields = vqp_ctx->mctx.field;
 	flexio_dev_outbox_config(dtctx, ectx->emu_outbox);
 
-	printf("\n vrdma_qp_rpc_handler start, fields 0x%x\n", mctx_fields);
+	
 	/* for vqp migration repost */
 	if (mctx_fields & (1 << VRDMA_DPA_VQP_MOD_REPOST_PI_BIT)) {
 		fence_rw();
+		vrdma_debug_count_set(ectx, 5);
 		vqp_ctx->sq_last_fetch_start = vqp_ctx->mctx.repost_pi;
 		vqp_ctx->mctx.field &= ~(1 << VRDMA_DPA_VQP_MOD_REPOST_PI_BIT | 
 								1 << VRDMA_DPA_VQP_MOD_STOP_FETCH_BIT);
@@ -97,7 +98,7 @@ uint64_t vrdma_qp_rpc_handler(uint64_t arg1)
 
 	/* for vqp migration stop fetch */
 	if (mctx_fields & (1 << VRDMA_DPA_VQP_MOD_STOP_FETCH_BIT)) {
-		printf("\n emu ctx id %d, cqn %d\n", vqp_ctx->emu_db_to_cq_id, ectx->guest_db_cq_ctx.cqn);
+		vrdma_debug_count_set(ectx, 6);
 		flexio_dev_db_ctx_arm(dtctx, ectx->guest_db_cq_ctx.cqn,
 				      		vqp_ctx->emu_db_to_cq_id);
 		flexio_dev_db_ctx_force_trigger(dtctx, ectx->guest_db_cq_ctx.cqn,
