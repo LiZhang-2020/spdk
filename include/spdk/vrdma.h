@@ -333,6 +333,7 @@ struct spdk_vrdma_qp {
 	struct dpa_updated_fields *dpa_fields;
 	struct vrdma_qp_stats stats;
 	uint16_t local_pi;
+	uint32_t local_cq_pi;
 	uint16_t sw_state;
 	uint16_t sq_ci;
 	struct vrdma_vqp_mig_ctx mig_ctx;
