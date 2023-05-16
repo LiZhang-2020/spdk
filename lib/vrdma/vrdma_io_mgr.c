@@ -1070,15 +1070,16 @@ static bool vrdma_qp_wqe_sm_submit(struct spdk_vrdma_qp *vqp,
 			case MLX5_OPCODE_RDMA_READ:
 			case MLX5_OPCODE_RDMA_WRITE:
 			case MLX5_OPCODE_RDMA_WRITE_IMM:
-			    if (i == 0 && vqp->mig_ctx.mig_repost == MIG_REPOST_START) {
+                if (is_vrdma_vqp_migration_enable() && (i == 0) &&
+                    (vqp->mig_ctx.mig_repost == MIG_REPOST_START)) {
                     if (vqp->mig_ctx.mig_repost_offset) {
                         vrdma_mig_reassemble_wqe(wqe, vqp->mig_ctx.mig_repost_offset,
                                 mqp->mig_ctx.mig_pmtu);
                     }
-			        /* clear repost flag */
+                    /* clear repost flag */
                     vqp->mig_ctx.mig_repost = MIG_REPOST_INIT;
                     SPDK_NOTICELOG("vqp %u, 1st wqe after mig", vqp->qp_idx);
-			    }
+                }
 				vrdma_rw_wqe_submit(wqe, vqp, backend_qp, opcode, i);
 				if (vqp->sm_state != VRDMA_QP_STATE_MKEY_WAIT)
 					vqp->stats.sq_wqe_wr++;
