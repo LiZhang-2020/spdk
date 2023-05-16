@@ -87,6 +87,7 @@ vrdma_dump_mqp(struct vrdma_tgid_node *tgid_node, int8_t mqp_idx, int32_t meta_s
             printf("\tmqp->sample_depth[%u]=%u\n", i, mqp->sample_depth[i]);
         }
         if (is_vrdma_vqp_migration_enable()) {
+            vrdma_query_bankend_qp_next_rcv_psn(mqp, &mqp->mig_ctx.mig_lnxt_rcv_psn);
             printf("\tpmtu=%u, msg_1st_psn=%u, rnxt_rcv_psn=%u, mig_lnxt_rcv_psn=%u\n",
                    mqp->mig_ctx.mig_pmtu, mqp->mig_ctx.msg_1st_psn,
                    mqp->mig_ctx.mig_rnxt_rcv_psn, mqp->mig_ctx.mig_lnxt_rcv_psn);

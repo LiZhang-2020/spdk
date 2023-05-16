@@ -227,6 +227,25 @@ void vrdma_mig_set_mqp_pmtu(struct vrdma_backend_qp *mqp,
     return;
 }
 
+static void
+vrdma_mig_set_vqp_repost_pi(struct spdk_vrdma_qp *vqp,
+                            uint16_t mig_repost_pi,
+                            uint32_t mig_repost_offset)
+{
+    /* first vqp may have some offset, following vqp has offset = 0 */
+    vqp->mig_ctx.mig_repost_pi = mig_repost_pi;
+    vqp->mig_ctx.mig_repost_offset = mig_repost_offset;
+    /* rollback pi and pre_pi */
+    vrdma_dpa_vq_is_stopped(vqp);
+    vqp->qp_pi->pi.sq_pi = mig_repost_pi;
+    vqp->sq.comm.pre_pi = mig_repost_pi;
+    vqp->mig_ctx.mig_repost = MIG_REPOST_START;
+    vrdma_dpa_set_vq_repost_pi(vqp, vqp->mig_ctx.mig_repost_pi);
+    SPDK_NOTICELOG("vqp=%u, mig_repost=%u vrdma_dpa_set_vq_repost_pi=%u repost_offset=%u",
+                   vqp->qp_idx, vqp->mig_ctx.mig_repost,
+                   vqp->mig_ctx.mig_repost_pi, vqp->mig_ctx.mig_repost_offset);
+}
+
 int32_t vrdma_mig_set_repost_pi(struct vrdma_backend_qp *mqp)
 {
     uint32_t i, mqp_sq_size, rnxt_rcv_psn;
@@ -266,23 +285,26 @@ int32_t vrdma_mig_set_repost_pi(struct vrdma_backend_qp *mqp)
         sq_meta = &mqp->sq_meta_buf[i & (mqp_sq_size - 1)];
         SPDK_NOTICELOG("sq_meta[%u] 1st psn=%u last_psn=%u\n",
                        i, sq_meta->first_psn, sq_meta->last_psn);
-        if (rnxt_rcv_psn >= sq_meta->first_psn &&
-            rnxt_rcv_psn <= sq_meta->last_psn) {
+        if (sq_meta->last_psn >= PSN_MASK) {
+            /* psn wrap around */
+            if (rnxt_rcv_psn < sq_meta->first_psn) {
+                rnxt_rcv_psn += PSN_MASK;
+                if (rnxt_rcv_psn >= sq_meta->first_psn && rnxt_rcv_psn <= sq_meta->last_psn) {
+                    SPDK_NOTICELOG("found mqp mig_repost_pi=%u, repost_offset=%u vqp=%u twqe=%u\n",
+                            i, rnxt_rcv_psn - sq_meta->first_psn, sq_meta->vqp->qp_idx,
+                            sq_meta->twqe_idx);
+                    vrdma_mig_set_vqp_repost_pi(sq_meta->vqp, sq_meta->twqe_idx,
+                            rnxt_rcv_psn - sq_meta->first_psn);
+                }
+                rnxt_rcv_psn -= PSN_MASK;
+            }
+        } else if (rnxt_rcv_psn >= sq_meta->first_psn &&
+                   rnxt_rcv_psn <= sq_meta->last_psn) {
             SPDK_NOTICELOG("found mqp mig_repost_pi=%u, repost_offset=%u vqp=%u twqe=%u\n",
                            i, rnxt_rcv_psn - sq_meta->first_psn, sq_meta->vqp->qp_idx,
                            sq_meta->twqe_idx);
-            /* first vqp may have some offset, following vqp has offset = 0 */
-            sq_meta->vqp->mig_ctx.mig_repost_pi = sq_meta->twqe_idx;
-            sq_meta->vqp->mig_ctx.mig_repost_offset = rnxt_rcv_psn - sq_meta->first_psn;
-            /* rollback pi and pre_pi */
-            vrdma_dpa_vq_is_stopped(sq_meta->vqp);
-            sq_meta->vqp->qp_pi->pi.sq_pi = sq_meta->twqe_idx;
-            sq_meta->vqp->sq.comm.pre_pi = sq_meta->twqe_idx;
-            sq_meta->vqp->mig_ctx.mig_repost = MIG_REPOST_START;
-            vrdma_dpa_set_vq_repost_pi(sq_meta->vqp, sq_meta->vqp->mig_ctx.mig_repost_pi);
-            SPDK_NOTICELOG("vqp=%u, mig_repost=%u vrdma_dpa_set_vq_repost_pi=%u",
-                           sq_meta->vqp->qp_idx, sq_meta->vqp->mig_ctx.mig_repost,
-                           sq_meta->vqp->mig_ctx.mig_repost_pi);
+            vrdma_mig_set_vqp_repost_pi(sq_meta->vqp, sq_meta->twqe_idx,
+                                        rnxt_rcv_psn - sq_meta->first_psn);
             break;
         }
     }
@@ -294,16 +316,8 @@ int32_t vrdma_mig_set_repost_pi(struct vrdma_backend_qp *mqp)
     for (i = i + 1; i < mqp_pi; i++) {
         sq_meta = &mqp->sq_meta_buf[i & (mqp_sq_size - 1)];
         if (sq_meta->vqp->mig_ctx.mig_repost == MIG_REPOST_SET) {
-            sq_meta->vqp->mig_ctx.mig_repost_pi = sq_meta->twqe_idx;
             /* rollback pi and pre_pi */
-            vrdma_dpa_vq_is_stopped(sq_meta->vqp);
-            sq_meta->vqp->qp_pi->pi.sq_pi = sq_meta->twqe_idx;
-            sq_meta->vqp->sq.comm.pre_pi = sq_meta->twqe_idx;
-            sq_meta->vqp->mig_ctx.mig_repost = MIG_REPOST_START;
-            vrdma_dpa_set_vq_repost_pi(sq_meta->vqp, sq_meta->vqp->mig_ctx.mig_repost_pi);
-            SPDK_NOTICELOG("vqp=%u, mig_repost=%u vrdma_dpa_set_vq_repost_pi=%u",
-                           sq_meta->vqp->qp_idx, sq_meta->vqp->mig_ctx.mig_repost,
-                           sq_meta->vqp->mig_ctx.mig_repost_pi);
+            vrdma_mig_set_vqp_repost_pi(sq_meta->vqp, sq_meta->twqe_idx, 0);
         }
     }
     /* 3: clear repost flag of left vqp which is not in meta_buf */
@@ -328,21 +342,25 @@ vrdma_mig_reassemble_wqe(struct vrdma_send_wqe *wqe,
                          uint32_t pmtu)
 {
     uint64_t offset_bytes = mig_repost_offset * pmtu;
-    uint64_t total_bytes = 0, sgl_offset;
+    uint64_t total_bytes = 0, sgl_offset, pre_ttb = 0;
     int16_t i, j, start_sgl_idx = -1;
 
     wqe->rdma_rw.remote_addr += offset_bytes;
+    SPDK_NOTICELOG("sge_num=%u, offset_bytes=%lu", wqe->meta.sge_num, offset_bytes);
     for (i = 0; i < wqe->meta.sge_num; i++) {
         total_bytes += wqe->sgl[i].buf_length;
-        if (total_bytes < offset_bytes)
+        SPDK_NOTICELOG("sge[%u], len=%u", i, wqe->sgl[i].buf_length);
+        if (total_bytes < offset_bytes) {
+            pre_ttb = total_bytes;
             continue;
+        }
         if (total_bytes == offset_bytes) {
             sgl_offset = 0;
             start_sgl_idx = i + 1;
             break;
         }
         if (total_bytes > offset_bytes) {
-            sgl_offset = offset_bytes - total_bytes;
+            sgl_offset = offset_bytes - pre_ttb;
             start_sgl_idx = i;
             break;
         }
@@ -352,18 +370,22 @@ vrdma_mig_reassemble_wqe(struct vrdma_send_wqe *wqe,
         return;
     }
 
+    SPDK_NOTICELOG("start_sgl_idx=%d sgl_offset=%lu", start_sgl_idx, sgl_offset);
     wqe->sgl[0].buf_length = wqe->sgl[start_sgl_idx].buf_length - sgl_offset;
     wqe->sgl[0].lkey = wqe->sgl[start_sgl_idx].lkey;
+    SPDK_NOTICELOG("sgl[0] lo=0x%x hi=0x%x", wqe->sgl[0].buf_addr_lo, wqe->sgl[0].buf_addr_hi);
     if (sgl_offset < UINT_MAX) {
         wqe->sgl[0].buf_addr_lo += sgl_offset;
     } else {
         wqe->sgl[0].buf_addr_lo += sgl_offset - UINT_MAX;
         wqe->sgl[0].buf_addr_hi += 1;
     }
+    SPDK_NOTICELOG("sgl[0] lo=0x%x hi=0x%x", wqe->sgl[0].buf_addr_lo, wqe->sgl[0].buf_addr_hi);
     for (j = 1, i = start_sgl_idx + 1; i < wqe->meta.sge_num; j++, i++) {
         memcpy(&wqe->sgl[j], &wqe->sgl[i], sizeof(wqe->sgl[j]));
     }
     wqe->meta.sge_num -= start_sgl_idx;
+    SPDK_NOTICELOG("sge_num=%d", wqe->meta.sge_num);
 }
 
 int
