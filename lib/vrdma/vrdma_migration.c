@@ -295,6 +295,7 @@ int32_t vrdma_mig_set_repost_pi(struct vrdma_backend_qp *mqp)
                             sq_meta->twqe_idx);
                     vrdma_mig_set_vqp_repost_pi(sq_meta->vqp, sq_meta->twqe_idx,
                             rnxt_rcv_psn - sq_meta->first_psn);
+                    break;
                 }
                 rnxt_rcv_psn -= PSN_MASK;
             }
@@ -316,6 +317,8 @@ int32_t vrdma_mig_set_repost_pi(struct vrdma_backend_qp *mqp)
     for (i = i + 1; i < mqp_pi; i++) {
         sq_meta = &mqp->sq_meta_buf[i & (mqp_sq_size - 1)];
         if (sq_meta->vqp->mig_ctx.mig_repost == MIG_REPOST_SET) {
+            SPDK_NOTICELOG("vqp=%u vrdma_dpa_set_vq_repost_pi=%u\n",
+                           sq_meta->vqp->qp_idx, sq_meta->twqe_idx);
             /* rollback pi and pre_pi */
             vrdma_mig_set_vqp_repost_pi(sq_meta->vqp, sq_meta->twqe_idx, 0);
         }
@@ -326,10 +329,10 @@ int32_t vrdma_mig_set_repost_pi(struct vrdma_backend_qp *mqp)
         if (vqp_entry->vqp->mig_ctx.mig_repost == MIG_REPOST_SET) {
             vqp_entry->vqp->mig_ctx.mig_repost = MIG_REPOST_INIT;
             /* has to inform dpa to start working */
-            vrdma_dpa_set_vq_repost_pi(sq_meta->vqp, sq_meta->vqp->sq.comm.pre_pi);
+            vrdma_dpa_set_vq_repost_pi(vqp_entry->vqp, vqp_entry->vqp->sq.comm.pre_pi);
             SPDK_NOTICELOG("vqp=%u, mig_repost=%u vrdma_dpa_set_vq_repost_pi=%u",
-                           sq_meta->vqp->qp_idx, sq_meta->vqp->mig_ctx.mig_repost,
-                           sq_meta->vqp->mig_ctx.mig_repost_pi);
+                           vqp_entry->vqp->qp_idx, vqp_entry->vqp->mig_ctx.mig_repost,
+                           vqp_entry->vqp->sq.comm.pre_pi);
         }
     }
     pthread_spin_unlock(&mqp->vqp_list_lock);
