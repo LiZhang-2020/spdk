@@ -97,5 +97,7 @@ void vrdma_dump_dpa_thread_stats(uint16_t dpa_thread_id);
 void vrdma_dpa_rx_cb(struct spdk_vrdma_qp *vqp,
 			enum vrdma_qp_sm_op_status status);
 void vrdma_qp_process(struct spdk_vrdma_qp *vqp);
+int vrdma_write_back_sq_cqe_no_cb(struct spdk_vrdma_qp *vqp,
+                                  uint16_t cqe_num);
 
 #endif

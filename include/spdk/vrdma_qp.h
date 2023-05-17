@@ -60,6 +60,9 @@ struct snap_vrdma_backend_qp;
 struct mqp_sq_meta {
     uint16_t req_id;
     uint16_t twqe_idx;
+    uint32_t opcode: 8;
+    uint32_t need_cqe: 1;
+    uint32_t byte_cnt;
     uint32_t first_psn;
     uint32_t last_psn;
     struct spdk_vrdma_qp *vqp;
