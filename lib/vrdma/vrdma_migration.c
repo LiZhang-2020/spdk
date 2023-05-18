@@ -463,7 +463,7 @@ vrdma_migration_progress(struct vrdma_ctrl *ctrl)
     uint8_t mqp_idx;
     struct spdk_vrdma_qp *vqp = NULL;
     struct snap_pg *pg = NULL;
-    struct vrdma_backend_qp *old_mqp = NULL;
+    struct vrdma_backend_qp *old_mqp = NULL, *new_mqp = NULL;
     struct vrdma_tgid_node *tgid_node = NULL;
 
     pthread_spin_lock(&vrdma_mig_vqp_list_lock);
@@ -477,6 +477,16 @@ vrdma_migration_progress(struct vrdma_ctrl *ctrl)
         if (old_mqp->mig_ctx.mig_repost_state == MIG_REPOST_SET) {
             vrdma_mig_handle_rnxt_rcv_psn(tgid_node->ctrl, tgid_node, old_mqp);
             continue;
+        }
+        if (!vqp->mig_ctx.mig_mqp) {
+            new_mqp = vrdma_find_mqp(tgid_node->ctrl, tgid_node, &mqp_idx);
+            SPDK_NOTICELOG("vqp=%u new mqp=%p, idx=%u",
+                           vqp->qp_idx, new_mqp, mqp_idx);
+            if (!new_mqp) {
+                SPDK_ERRLOG("Failed to find new backend QP");
+                continue;
+            }
+            vqp->mig_ctx.mig_mqp = new_mqp;
         }
         LIST_REMOVE(vqp_entry, entry);
         free(vqp_entry);
