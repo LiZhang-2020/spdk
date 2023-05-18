@@ -1003,6 +1003,29 @@ static bool vrdma_qp_sm_poll_cq_ci(struct spdk_vrdma_qp *vqp,
 	return _vrdma_qp_sm_poll_cq_ci(vqp, status, VRDMA_QP_STATE_GEN_COMP);
 }
 
+static inline uint32_t convet_wr_wc_opcode(uint32_t wr_opcode)
+{
+    switch (wr_opcode) {
+    case MLX5_OPCODE_RDMA_WRITE_IMM:
+    case MLX5_OPCODE_RDMA_WRITE:
+        return IBV_WC_RDMA_WRITE;
+    case MLX5_OPCODE_SEND_IMM:
+    case MLX5_OPCODE_SEND:
+    case MLX5_OPCODE_SEND_INVAL:
+        return IBV_WC_SEND;
+    case MLX5_OPCODE_RDMA_READ:
+        return IBV_WC_RDMA_READ;
+    case MLX5_OPCODE_ATOMIC_CS:
+        return IBV_WC_COMP_SWAP;
+    case MLX5_OPCODE_ATOMIC_FA:
+        return IBV_WC_FETCH_ADD;
+    case MLX5_OPCODE_TSO:
+        return IBV_WC_TSO;
+    default:
+        return 0;
+    }
+}
+
 //translate and submit vqp wqe to mqp
 static bool vrdma_qp_wqe_sm_submit(struct spdk_vrdma_qp *vqp,
 											enum vrdma_qp_sm_op_status status)
@@ -1099,15 +1122,22 @@ static bool vrdma_qp_wqe_sm_submit(struct spdk_vrdma_qp *vqp,
 			return true;
 		}
         if (is_vrdma_vqp_migration_enable()) {
-            vqp->sq.meta_buff[(vqp->sq.comm.pre_pi + i) % q_size].mqp_wqe_idx = backend_qp->hw_qp.sq.pi;
+            vqp->sq.meta_buff[(vqp->sq.comm.pre_pi + i) % q_size].mqp_wqe_idx = mqp_pi;
+            sq_meta->opcode = convet_wr_wc_opcode(opcode);
+            sq_meta->byte_cnt = wqe->meta.length;
+            if (wqe->meta.req_id && wqe->meta.send_flags & IBV_SEND_SIGNALED) {
+                sq_meta->need_cqe = 1;
+            } else {
+                sq_meta->need_cqe = 0;
+            }
             sq_meta->first_psn = mqp->mig_ctx.msg_1st_psn;
             sq_meta->last_psn  = sq_meta->first_psn +
                                  (vqp->mig_ctx.mig_wqe_len - 1)/mqp->mig_ctx.mig_pmtu;
 #ifdef WQE_DBG
-            SPDK_NOTICELOG("vrdma vqp=%u, twqe_idx=%u, mqp_pi=%u sq_meta=%p "
-							"first_psn=%u, last_psn=%u\n",
-                            vqp->qp_idx, sq_meta->twqe_idx, backend_qp->hw_qp.sq.pi,
-                            sq_meta, sq_meta->first_psn, sq_meta->last_psn);
+            SPDK_NOTICELOG("vrdma vqp=%u, vsq.meta_buf[%u] mqp_wqe_idx=%u :twqe_idx=%u, req_id=%u "
+                           "sq_meta=%p opcode=%u first_psn=%u, last_psn=%u\n",
+                           vqp->qp_idx, (vqp->sq.comm.pre_pi + i), mqp_pi, sq_meta->twqe_idx, sq_meta->req_id,
+                           sq_meta, sq_meta->opcode, sq_meta->first_psn, sq_meta->last_psn);
 #endif
             mqp->mig_ctx.msg_1st_psn = (sq_meta->last_psn + 1) & PSN_MASK;//psn 24 bits
             if (i == (num_to_parse - 1)) {
@@ -1482,25 +1512,7 @@ static inline vrdma_convet_mlx5_ibv_opcode(struct mlx5_cqe64 *cqe)
 	case MLX5_CQE_RESP_SEND_INV:
 		return IBV_WC_RECV;
 	case MLX5_CQE_REQ:
-		switch (be32toh(cqe->sop_drop_qpn) >> 24) {
-		case MLX5_OPCODE_RDMA_WRITE_IMM:
-		case MLX5_OPCODE_RDMA_WRITE:
-			return IBV_WC_RDMA_WRITE;
-		case MLX5_OPCODE_SEND_IMM:
-		case MLX5_OPCODE_SEND:
-		case MLX5_OPCODE_SEND_INVAL:
-			return IBV_WC_SEND;
-		case MLX5_OPCODE_RDMA_READ:
-			return IBV_WC_RDMA_READ;
-		case MLX5_OPCODE_ATOMIC_CS:
-			return IBV_WC_COMP_SWAP;
-		case MLX5_OPCODE_ATOMIC_FA:
-			return IBV_WC_FETCH_ADD;
-		case MLX5_OPCODE_TSO:
-			return IBV_WC_TSO;
-		default:
-			break;
-		}
+        return convet_wr_wc_opcode(be32toh(cqe->sop_drop_qpn) >> 24);
 	default:
 		vrdma_mcqe_err(cqe);
 		break;
@@ -1900,8 +1912,8 @@ static void vrdma_qp_sm_poll_cq_ci_no_cb(struct spdk_vrdma_qp *vqp)
 	return;
 }
 
-static int vrdma_write_back_sq_cqe_no_cb(struct spdk_vrdma_qp *vqp,
-													uint16_t cqe_num)
+int vrdma_write_back_sq_cqe_no_cb(struct spdk_vrdma_qp *vqp,
+                                  uint16_t cqe_num)
 {
 	struct spdk_vrdma_cq *vcq = vqp->sq_vcq;
 	uint32_t pi = 0;
@@ -1959,9 +1971,9 @@ static int vrdma_write_back_sq_cqe_no_cb(struct spdk_vrdma_qp *vqp,
 		host_ring_addr = vcq->host_pa + offset;
 		local_ring_addr = (uint8_t *)local_buff;
 #ifdef WQE_DBG
-		SPDK_NOTICELOG("<tid %d> write cqe: num %d host base addr 0x%lx host ring addr 0x%lx"
+		SPDK_NOTICELOG("<tid %d> vqp=%d mqp_idx=%d write cqe: num %d host base addr 0x%lx host ring addr 0x%lx "
 						"local base 0x%p local ring 0x%p\n",
-						tid, cqe_num, vcq->host_pa, host_ring_addr,
+						tid, vqp->qp_idx, vqp->bk_qp->poller_core, cqe_num, vcq->host_pa, host_ring_addr,
 						local_buff, local_ring_addr);
 #endif
 		ret = snap_dma_q_write(vqp->snap_queue->dma_q, local_ring_addr, write_size,
@@ -2074,24 +2086,22 @@ static void vrdma_qp_handle_completion(struct vrdma_backend_qp *bk_qp)
             bk_qp->qp_state = IBV_QPS_ERR;
             if (is_vrdma_vqp_migration_enable()) {
                 struct mlx5_err_cqe *ecqe = (struct mlx5_err_cqe *)cqe;
-                SPDK_NOTICELOG("vqp=%u got err cqe synd=0x%x sq_ci=%u on"
+                SPDK_NOTICELOG("vqp=%u got err cqe synd=0x%x vsq_ci=%u on "
                                 "mqp 0x%x idx=%u mqp.sq_ci=%u\n",
                                 comp_vqp->qp_idx, ecqe->syndrome,
-                                comp_vqp->sq_ci, bk_qp->bk_qp.qpnum,
+                                comp_vqp->vsq_ci, bk_qp->bk_qp.qpnum,
                                 bk_qp->poller_core, bk_qp->bk_qp.sq_ci);
                 if (comp_vqp->mig_ctx.mig_repost) {
                     goto null_cqe;
                 } else if (ecqe->syndrome == MLX5_CQE_SYNDROME_TRANSPORT_RETRY_EXC_ERR ||
                            ecqe->syndrome == MLX5_CQE_SYNDROME_WR_FLUSH_ERR) {
-                    comp_vqp->sq_ci = sq_meta->twqe_idx + 1;
-                    bk_qp->bk_qp.sq_ci = vrdma_get_wqe_id(bk_qp, cqe->wqe_counter) + 1;
                     vrdma_mig_set_repost_state(bk_qp);
                     goto null_cqe;
                 }
             }
         }
 
-		comp_vqp->sq_ci = sq_meta->twqe_idx;
+		comp_vqp->vsq_ci = sq_meta->twqe_idx + 1;
 		cqe_idx = comp_vqp->local_cq_pi % comp_vqp->sq.comm.wqebb_cnt;
 		vcqe = (struct vrdma_cqe *)comp_vqp->sq.local_cq_buff + cqe_idx;
 		vcqe->imm_data = cqe->imm_inval_pkey;

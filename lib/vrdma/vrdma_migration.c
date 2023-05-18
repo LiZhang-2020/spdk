@@ -130,6 +130,7 @@ void vrdma_mig_set_repost_state(struct vrdma_backend_qp *mqp)
 {
     struct vrdma_vqp *vqp_entry = NULL;
 
+    mqp->mig_ctx.mig_repost_state = MIG_REPOST_SET;
     pthread_spin_lock(&mqp->vqp_list_lock);
     LIST_FOREACH(vqp_entry, &mqp->vqp_list, entry) {
         vqp_entry->vqp->mig_ctx.mig_state = MIG_START;
@@ -160,7 +161,7 @@ void vrdma_mig_handle_sm(struct spdk_vrdma_qp *vqp)
         }
         break;
     case MIG_PREPARE:
-        if (vqp->sq_ci == vqp->sq.comm.pre_pi) {
+        if (vqp->vsq_ci == vqp->sq.comm.pre_pi) {
             vqp->mig_ctx.mig_state = MIG_START;
             vrdma_vqp_mig_start(vqp);
         }
@@ -244,6 +245,70 @@ vrdma_mig_set_vqp_repost_pi(struct spdk_vrdma_qp *vqp,
     SPDK_NOTICELOG("vqp=%u, mig_repost=%u vrdma_dpa_set_vq_repost_pi=%u repost_offset=%u",
                    vqp->qp_idx, vqp->mig_ctx.mig_repost,
                    vqp->mig_ctx.mig_repost_pi, vqp->mig_ctx.mig_repost_offset);
+}
+
+static void
+vrdma_mig_gen_vqp_cqe(struct spdk_vrdma_qp *vqp)
+{
+    uint16_t i, pre_pi = vqp->sq.comm.pre_pi;
+    uint16_t q_size = vqp->sq.comm.wqebb_cnt;
+    uint16_t mqp_wqe_idx;
+    struct mqp_sq_meta *sq_meta = NULL;
+    struct vrdma_backend_qp *mqp = vqp->bk_qp;
+    uint32_t cqe_idx;
+    struct timespec start_tv;
+    struct vrdma_cqe *vcqe;
+    int ret;
+
+    if (!vqp) return;
+    if (vrdma_vq_rollback(vqp->vsq_ci, pre_pi, q_size)) {
+        pre_pi += q_size;
+    }
+    for (i = vqp->vsq_ci; i < vqp->sq.comm.pre_pi; i++) {
+        mqp_wqe_idx = vqp->sq.meta_buff[i % q_size].mqp_wqe_idx;
+        sq_meta = &mqp->sq_meta_buf[mqp_wqe_idx & (mqp->bk_qp.hw_qp.sq.wqe_cnt - 1)];
+        //SPDK_NOTICELOG("vrdam vqpn %u vsq_meta[%u] %p mqp_wqe_idx[%u]: twqe_idx %u req_id %u need_cqe %u",
+                       //vqp->qp_idx, i, mqp_wqe_idx, sq_meta, sq_meta->twqe_idx, sq_meta->req_id, sq_meta->need_cqe);
+        if (0 == sq_meta->need_cqe) {
+            /* app did not request cqe for this wqe */
+            continue;
+        }
+        cqe_idx = vqp->local_cq_pi % vqp->sq.comm.wqebb_cnt;
+        vcqe = (struct vrdma_cqe *)vqp->sq.local_cq_buff + cqe_idx;
+        vcqe->length = sq_meta->byte_cnt;
+        vcqe->req_id = sq_meta->req_id;
+        vcqe->local_qpn = vqp->qp_idx;
+        clock_gettime(CLOCK_REALTIME, &start_tv);
+        vcqe->ts = (uint32_t)start_tv.tv_nsec;
+        vcqe->opcode = sq_meta->opcode;
+        SPDK_NOTICELOG("vrdam vqpn %u put cqe: cq_idx %d "
+                       "vcq pi %u, req_id %d, opcode %d\n",
+                       vqp->qp_idx, vqp->sq_vcq->cq_idx,
+                       vqp->sq_vcq->pi, vcqe->req_id, vcqe->opcode);
+        ret = vrdma_write_back_sq_cqe_no_cb(vqp, 1);
+        snap_dma_q_progress(vqp->snap_queue->dma_q);
+        if (spdk_unlikely(ret)) {
+            SPDK_ERRLOG("failed to write cq CQE entry, ret %d\n", ret);
+        }
+        vqp->local_cq_pi++;
+    }
+}
+
+void
+vrdma_mig_gen_completion(struct vrdma_backend_qp *mqp)
+{
+    struct vrdma_vqp *vqp_entry = NULL;
+
+    if (!mqp) return;
+    /* generate cqe for each vqp from vsq_ci to vsq pre_pi */
+    pthread_spin_lock(&mqp->vqp_list_lock);
+    LIST_FOREACH(vqp_entry, &mqp->vqp_list, entry) {
+        vrdma_mig_gen_vqp_cqe(vqp_entry->vqp);
+    }
+    pthread_spin_unlock(&mqp->vqp_list_lock);
+    if (mqp->mig_ctx.mig_repost_state == MIG_REPOST_SET) {
+        mqp->mig_ctx.mig_repost_state = MIG_REPOST_START;
+    }
 }
 
 int32_t vrdma_mig_set_repost_pi(struct vrdma_backend_qp *mqp)
@@ -404,12 +469,12 @@ vrdma_migration_progress(struct vrdma_ctrl *ctrl)
     pthread_spin_lock(&vrdma_mig_vqp_list_lock);
     LIST_FOREACH_SAFE(vqp_entry, &vrdma_mig_vqp_list, entry, tmp_entry) {
         vqp = vqp_entry->vqp;
-        SPDK_NOTICELOG("<tid=%d> vqp=0x%x, mig_repost=0x%x",
-                       gettid(), vqp->qp_idx, vqp->mig_ctx.mig_repost);
+        //SPDK_NOTICELOG("<tid=%d> vqp=0x%x, mig_repost=0x%x",
+                       //gettid(), vqp->qp_idx, vqp->mig_ctx.mig_repost);
         old_mqp = vqp->bk_qp;
         tgid_node = old_mqp->tgid_node;
 
-        if (vqp->mig_ctx.mig_repost == MIG_REPOST_SET) {
+        if (old_mqp->mig_ctx.mig_repost_state == MIG_REPOST_SET) {
             vrdma_mig_handle_rnxt_rcv_psn(tgid_node->ctrl, tgid_node, old_mqp);
             continue;
         }

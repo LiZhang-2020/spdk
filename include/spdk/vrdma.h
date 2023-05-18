@@ -263,7 +263,7 @@ struct vrdma_vkey_tbl {
 	struct vrdma_vkey_entry vkey[VRDMA_DEV_MAX_MR];
 };
 
-enum mig_repost_state {
+enum vrdma_mig_repost_state {
     MIG_REPOST_INIT  = 0,               /* no need repost */
     MIG_REPOST_SET   = 1,               /* need repost, will find repost pi */
     MIG_REPOST_START = 2,               /* found repost pi */
@@ -335,7 +335,7 @@ struct spdk_vrdma_qp {
 	uint16_t local_pi;
 	uint32_t local_cq_pi;
 	uint16_t sw_state;
-	uint16_t sq_ci;
+	uint16_t vsq_ci;
 	struct vrdma_vqp_mig_ctx mig_ctx;
 };
 

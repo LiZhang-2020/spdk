@@ -52,6 +52,7 @@ enum mig_rnxt_rcv_psn_state {
 
 struct vrdma_mqp_mig_ctx {
     uint32_t mig_pmtu;
+    uint32_t mig_repost_state;
 #define PSN_MASK                   0xFFFFFF /* 24 bits */
     /* first PSN of the current executing WQE in the Send Queue */
     uint32_t msg_1st_psn;                   /* 1st psn of current wqe */
@@ -69,6 +70,7 @@ void vrdma_mig_mqp_depth_sampling(struct vrdma_backend_qp *mqp);
 void vrdma_mig_handle_sm(struct spdk_vrdma_qp *vqp);
 void vrdma_mig_set_mqp_pmtu(struct vrdma_backend_qp *mqp,
                             struct ibv_qp_attr *qp_attr);
+void vrdma_mig_gen_completion(struct vrdma_backend_qp *mqp);
 void vrdma_mig_set_repost_state(struct vrdma_backend_qp *mqp);
 int32_t vrdma_mig_set_repost_pi(struct vrdma_backend_qp *mqp);
 void

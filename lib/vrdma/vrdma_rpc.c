@@ -373,6 +373,7 @@ spdk_vrdma_client_qp_resp_handler(struct spdk_vrdma_rpc_client *client,
         mqp->mig_ctx.mig_rnxt_rcv_psn = attr->next_rcv_psn;
         mqp->mig_ctx.mig_rnxt_rcv_psn_state = MIG_RESP_RCV;
         vrdma_mig_set_repost_pi(mqp);
+        vrdma_mig_gen_completion(mqp);
     } else if (mqp->qp_state != IBV_QPS_RTS) {
         if (mqp->qp_state == IBV_QPS_INIT) {
             spdk_vrdma_set_qp_attr(ctrl, tgid_node, attr, &qp_attr, &attr_mask, &rdy_attr);
@@ -679,6 +680,7 @@ spdk_vrdma_rpc_srv_qp_req_handle(struct spdk_jsonrpc_request *request,
             mqp->mig_ctx.mig_rnxt_rcv_psn_state = MIG_RESP_RCV;
             vrdma_mig_set_repost_state(mqp);
             vrdma_mig_set_repost_pi(mqp);
+            vrdma_mig_gen_completion(mqp);
         } else {
             tgid_node->src_udp[attr->mqp_idx].mqp = NULL;
             vrdma_destroy_backend_qp(&mqp);
