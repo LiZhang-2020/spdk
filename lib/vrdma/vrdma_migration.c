@@ -97,6 +97,9 @@ static bool vrdma_check_active_mig_criteria(struct spdk_vrdma_qp *vqp)
     if (!mqp || mqp->avg_depth <= MIGRATION_MQP_DEPTH_THRESH(mqp->bk_qp.qp_attr.sq_size)) {
         return false;
     } else {
+        if (mqp->mig_ctx.mig_curr_vqp_cnt >= mqp->mig_ctx.mig_max_vqp_cnt) {
+            return false;
+        }
         return true;
     }
 }
@@ -124,6 +127,7 @@ vrdma_vqp_mig_start(struct spdk_vrdma_qp *vqp)
     vrdma_desched_vq_nolock(vqp);
     vqp->mig_ctx.mig_start_ts = spdk_get_ticks();
     vrdma_mig_vqp_add_to_list(vqp);
+    vqp->bk_qp->mig_ctx.mig_curr_vqp_cnt++;
 }
 
 void vrdma_mig_set_repost_state(struct vrdma_backend_qp *mqp)

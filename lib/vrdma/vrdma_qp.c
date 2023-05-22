@@ -359,6 +359,7 @@ vrdma_create_backend_qp(struct vrdma_tgid_node *tgid_node,
 	qp->bk_qp.qp_attr.rq_size = VRDMA_BACKEND_QP_RQ_SIZE;
 	qp->bk_qp.qp_attr.rq_max_sge = 1;
 	qp->bk_qp.qp_attr.is_vrdma = 1;
+	qp->mig_ctx.mig_max_vqp_cnt = MIG_MAX_VQP_CNT;
 	if (snap_vrdma_create_qp_helper(qp->pd, &qp->bk_qp)) {
 		SPDK_ERRLOG("Failed to create backend QP ");
 		goto free_bk_qp;

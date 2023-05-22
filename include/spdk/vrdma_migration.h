@@ -53,11 +53,14 @@ enum mig_rnxt_rcv_psn_state {
 struct vrdma_mqp_mig_ctx {
     uint32_t mig_pmtu;
     uint32_t mig_repost_state;
-#define PSN_MASK                   0xFFFFFF /* 24 bits */
+#define PSN_MASK                    0xFFFFFF /* 24 bits */
     /* first PSN of the current executing WQE in the Send Queue */
     uint32_t msg_1st_psn;                   /* 1st psn of current wqe */
     uint32_t mig_lnxt_rcv_psn;              /* local next_rcv_psn in qpc */
     uint32_t mig_rnxt_rcv_psn_state:8;      /* 1 indicate has sent msg to peer */
+#define MIG_MAX_VQP_CNT             0x1
+    uint32_t mig_max_vqp_cnt:8;             /* max vqp can be migrated out in one poll */
+    uint32_t mig_curr_vqp_cnt:8;            /* curr number of vqp has been migrated in one poll */
     uint32_t mig_rnxt_rcv_psn;              /* remote next_rcv_psn in qpc */
 };
 
