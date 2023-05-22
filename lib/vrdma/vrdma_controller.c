@@ -204,6 +204,7 @@ int vrdma_ctrl_progress_io(void *arg, int thread_id)
 	struct snap_pg_q_entry *pg_q;
     struct vrdma_tgid_node *tgid_node;
 
+    tgid_node->src_udp[thread_id].mqp->mig_ctx.mig_curr_vqp_cnt = 0;
 	pthread_spin_lock(&pg->lock);
   	TAILQ_FOREACH(pg_q, &pg->q_list, entry) {
 		vq = vrmda_pg_q_entry_to_vrdma_qp(pg_q);
@@ -211,6 +212,7 @@ int vrdma_ctrl_progress_io(void *arg, int thread_id)
 		vrdma_qp_process(vq);
 	}
 	pthread_spin_unlock(&pg->lock);
+    tgid_node->src_udp[thread_id].mqp->mig_ctx.mig_curr_vqp_cnt = 0;
     if (is_vrdma_vqp_migration_enable() && (!LIST_EMPTY(&vrdma_tgid_list))) {
         LIST_FOREACH(tgid_node, &vrdma_tgid_list, entry) {
             vrdma_mig_mqp_depth_sampling(tgid_node->src_udp[thread_id].mqp);
