@@ -156,7 +156,7 @@ union vrdma_align_pici {
 
 struct dpa_updated_fields {
 	uint16_t mig_flags;
-	uint8_t pad[6];
+	uint8_t pad[62];
 };
 
 struct spdk_vrdma_cq {
