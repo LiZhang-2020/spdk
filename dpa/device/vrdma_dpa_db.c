@@ -419,8 +419,8 @@ vrdma_dpa_handle_one_vqp(struct flexio_dev_thread_ctx *dtctx,
 		vrdma_dpa_sq_process(ehctx, vqp_ctx, sq_pi, sq_pi_last);
 		total_wqe += sq_pi - sq_pi_last;
 		sq_pi_last = sq_pi;
-		//flexio_dev_dbr_sq_set_pi((uint32_t *)ehctx->dma_qp.dbr_daddr + 1,
-		//						ehctx->dma_qp.hw_qp_sq_pi);
+		flexio_dev_dbr_sq_set_pi((uint32_t *)ehctx->dma_qp.dbr_daddr + 1,
+								ehctx->dma_qp.hw_qp_sq_pi);
 		//flexio_dev_qp_sq_ring_db(dtctx, ehctx->dma_qp.hw_qp_sq_pi,
 		//						ehctx->dma_qp.qp_num);
 		asm volatile("fence ow,ow" ::: "memory");
