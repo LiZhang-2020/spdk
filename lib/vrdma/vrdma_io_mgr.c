@@ -1049,11 +1049,10 @@ static bool vrdma_qp_wqe_sm_submit(struct spdk_vrdma_qp *vqp,
 
 #ifdef WQE_DBG
 	SPDK_NOTICELOG("<tid %d> vrdma vqpn %d submit wqe start: pi %d, pre_pi %d, num_to_submit %d\n"
-                    "mqp.pi=%u, mqp.sq_ci=%u, wqe_cnt=%u=0x%x, mqp.sq_size=%u=0x%x\n",
+                    "mqp.pi=%u, mqp.sq_ci=%u, wqe_cnt=%u, mqp.sq_size=%u\n",
 					tid, vqp->qp_idx, vqp->local_pi, vqp->sq.comm.pre_pi, num_to_parse,
 					backend_qp->hw_qp.sq.pi, backend_qp->sq_ci,
-					backend_qp->hw_qp.sq.wqe_cnt, backend_qp->hw_qp.sq.wqe_cnt,
-					backend_qp->qp_attr.sq_size, backend_qp->qp_attr.sq_size);
+					backend_qp->hw_qp.sq.wqe_cnt, backend_qp->qp_attr.sq_size);
 #endif
 
 #ifdef VRDMA_DPA
@@ -1068,9 +1067,10 @@ static bool vrdma_qp_wqe_sm_submit(struct spdk_vrdma_qp *vqp,
 		opcode = vrdma_ib2mlx_opcode[wqe->meta.opcode];
         mqp_pi = backend_qp->hw_qp.sq.pi;
         if (mqp_pi - backend_qp->sq_ci >= backend_qp->qp_attr.sq_size) {
-            SPDK_ERRLOG("vqpn %d:backend qpn %x is full, mqp_pi=%u, sq_ci=%u, size=%u\n",
-                        vqp->qp_idx, backend_qp->qpnum, mqp_pi, backend_qp->sq_ci,
-                        backend_qp->qp_attr.sq_size);
+            SPDK_ERRLOG("vqpn %d:backend qpn 0x%x mqp_idx %u is full, mqp_pi=%u, sq_ci=%u, size=%u"
+                        "num_to_submit %u\n", vqp->qp_idx, backend_qp->qpnum,
+                        mqp->poller_core, mqp_pi, backend_qp->sq_ci,
+                        backend_qp->qp_attr.sq_size, num_to_parse);
             return false;
         }
         mqp_pi &= (backend_qp->hw_qp.sq.wqe_cnt - 1);
