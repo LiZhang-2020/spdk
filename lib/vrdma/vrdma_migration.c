@@ -73,10 +73,15 @@ vrdma_mig_vqp_add_to_list(struct spdk_vrdma_qp *vqp)
 
 void vrdma_mig_mqp_depth_sampling(struct vrdma_backend_qp *mqp)
 {
-    uint32_t i, total_depth;
+    uint32_t i, tmp_pi, total_depth;
 
     if (!mqp) return;
-    mqp->sample_depth[mqp->sample_curr] = mqp->bk_qp.hw_qp.sq.pi - mqp->bk_qp.sq_ci;
+    tmp_pi = mqp->bk_qp.hw_qp.sq.pi;
+    if (vrdma_vq_rollback(mqp->bk_qp.sq_ci, mqp->bk_qp.hw_qp.sq.pi,
+                          mqp->bk_qp.qp_attr.sq_size)) {
+        tmp_pi += mqp->bk_qp.qp_attr.sq_size;
+    }
+    mqp->sample_depth[mqp->sample_curr] = tmp_pi - mqp->bk_qp.sq_ci;
     mqp->sample_curr = (mqp->sample_curr + 1) % MQP_DEPTH_SAMPLE_NUM;
     if (!mqp->sample_depth[MQP_DEPTH_SAMPLE_NUM-1]) {
         for (i = 0, total_depth = 0; i < MQP_DEPTH_SAMPLE_NUM; i++) {
@@ -86,7 +91,7 @@ void vrdma_mig_mqp_depth_sampling(struct vrdma_backend_qp *mqp)
     }
 }
 
-#define MIGRATION_MQP_DEPTH_THRESH(sq_size) ((sq_size)>>1 + (sq_size)>>2)
+#define MIGRATION_MQP_DEPTH_THRESH(sq_size) (((sq_size)>>1) + ((sq_size)>>2))
 static bool vrdma_check_active_mig_criteria(struct spdk_vrdma_qp *vqp)
 {
     struct vrdma_backend_qp *mqp = NULL;
@@ -100,6 +105,9 @@ static bool vrdma_check_active_mig_criteria(struct spdk_vrdma_qp *vqp)
         if (mqp->mig_ctx.mig_curr_vqp_cnt >= mqp->mig_ctx.mig_max_vqp_cnt) {
             return false;
         }
+        SPDK_NOTICELOG("mqp=0x%x idx=%u avg_depth=%u threshold=%u",
+                       mqp->bk_qp.qpnum, mqp->poller_core, mqp->avg_depth,
+                       MIGRATION_MQP_DEPTH_THRESH(mqp->bk_qp.qp_attr.sq_size));
         return true;
     }
 }
