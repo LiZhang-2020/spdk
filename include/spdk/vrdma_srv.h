@@ -250,7 +250,7 @@ struct vrdma_tgid_key {
     union ibv_gid remote_tgid;
 };
 
-/* one remote vrdma device has a tgid */
+/* one vrdma device pair has a tgid_node */
 struct vrdma_tgid_node {
     LIST_ENTRY(vrdma_tgid_node)     entry;
     struct vrdma_tgid_key           key;
