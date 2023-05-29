@@ -1502,7 +1502,7 @@ static int vrdma_write_back_sq_cqe(struct spdk_vrdma_qp *com_vqp,
 	return 0;
 }
 
-static inline vrdma_convet_mlx5_ibv_opcode(struct mlx5_cqe64 *cqe)
+static inline int vrdma_convet_mlx5_ibv_opcode(struct mlx5_cqe64 *cqe)
 {
 	switch (mlx5dv_get_cqe_opcode(cqe)) {
 	case MLX5_CQE_RESP_WR_IMM:
