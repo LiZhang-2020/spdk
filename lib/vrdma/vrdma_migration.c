@@ -40,6 +40,7 @@
 #include "spdk/log.h"
 #include "spdk/likely.h"
 #include "spdk/vrdma_controller.h"
+#include "spdk/vrdma_io_mgr.h"
 #include "spdk/vrdma_migration.h"
 
 pthread_spinlock_t vrdma_mig_vqp_list_lock;
@@ -203,7 +204,6 @@ vrdma_mig_handle_rnxt_rcv_psn(struct vrdma_ctrl *ctrl,
                               struct vrdma_backend_qp *mqp)
 {
     if (mqp->mig_ctx.mig_rnxt_rcv_psn_state == MIG_REQ_NULL) {
-        mqp->mig_ctx.mig_rnxt_rcv_psn_state = MIG_REQ_SENT;
         /* query peer mqp.next_rcv_psn only one time*/
         if (vrdma_qp_notify_remote_by_rpc(ctrl, tgid_node, mqp->poller_core)) {
             SPDK_ERRLOG("failed to send rpc to query mqp=0x%x "
@@ -211,6 +211,7 @@ vrdma_mig_handle_rnxt_rcv_psn(struct vrdma_ctrl *ctrl,
                     mqp->bk_qp.qpnum, mqp->qp_state);
             return;
         }
+        mqp->mig_ctx.mig_rnxt_rcv_psn_state = MIG_REQ_SENT;
     }
 }
 
@@ -334,16 +335,10 @@ int32_t vrdma_mig_set_repost_pi(struct vrdma_backend_qp *mqp)
     mqp_pi = mqp->bk_qp.hw_qp.sq.pi;
     mqp_ci = mqp->bk_qp.sq_ci;
     mqp_sq_size = mqp->bk_qp.hw_qp.sq.wqe_cnt;
-    if (vrdma_vq_rollback(mqp_ci, mqp_pi, mqp_sq_size)) {
-        mqp_pi += mqp_sq_size;
-    }
-    if (mqp_ci == 0) {
-        mqp_pi += mqp_sq_size;
-    }
     rnxt_rcv_psn = mqp->mig_ctx.mig_rnxt_rcv_psn;
     SPDK_NOTICELOG("mqp.mig_rnxt_rcv_psn=%u, msg_1st_psn=%u sq_ci=%u, sq_pi=%u\n",
                    rnxt_rcv_psn, mqp->mig_ctx.msg_1st_psn, mqp_ci, mqp_pi);
-    if (rnxt_rcv_psn == mqp->mig_ctx.msg_1st_psn) {
+    if (rnxt_rcv_psn == mqp->mig_ctx.msg_1st_psn || (mqp_pi == mqp_ci)) {
         /* all have been submitted in peer memory,no need repost */
         pthread_spin_lock(&mqp->vqp_list_lock);
         LIST_FOREACH(vqp_entry, &mqp->vqp_list, entry) {
@@ -356,6 +351,13 @@ int32_t vrdma_mig_set_repost_pi(struct vrdma_backend_qp *mqp)
         }
         pthread_spin_unlock(&mqp->vqp_list_lock);
         return 0;
+    }
+
+    if (vrdma_vq_rollback(mqp_ci, mqp_pi, mqp_sq_size)) {
+        mqp_pi += mqp_sq_size;
+    }
+    if ((mqp_pi != mqp_ci) && (mqp_ci == 0)) {
+        mqp_pi += mqp_sq_size;
     }
     /* 1: find the 1st wqe and its vqp that need repost */
     for (i = mqp_ci - 1; i < mqp_pi; i++) {
