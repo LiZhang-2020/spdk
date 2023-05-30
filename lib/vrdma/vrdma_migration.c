@@ -136,7 +136,6 @@ vrdma_vqp_mig_start(struct spdk_vrdma_qp *vqp)
     vrdma_desched_vq_nolock(vqp);
     vqp->mig_ctx.mig_start_ts = spdk_get_ticks();
     vrdma_mig_vqp_add_to_list(vqp);
-    vqp->bk_qp->mig_ctx.mig_curr_vqp_cnt++;
 }
 
 void vrdma_mig_set_repost_state(struct vrdma_backend_qp *mqp)
@@ -186,6 +185,7 @@ void vrdma_mig_handle_sm(struct spdk_vrdma_qp *vqp)
             vqp->mig_ctx.mig_mqp = vrdma_find_mqp_by_depth(tgid_node, &mqp_idx);
             if (vqp->mig_ctx.mig_mqp != vqp->bk_qp) {
                 vqp->mig_ctx.mig_state = MIG_PREPARE;
+                vqp->bk_qp->mig_ctx.mig_curr_vqp_cnt++;
             } else {
                 SPDK_ERRLOG("can't find a more leisurely mqp!\n");
             }
