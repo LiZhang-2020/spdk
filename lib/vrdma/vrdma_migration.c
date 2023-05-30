@@ -78,9 +78,9 @@ void vrdma_mig_mqp_depth_sampling(struct vrdma_backend_qp *mqp)
 
     if (!mqp) return;
     tmp_pi = mqp->bk_qp.hw_qp.sq.pi;
-    if (vrdma_vq_rollback(mqp->bk_qp.sq_ci, mqp->bk_qp.hw_qp.sq.pi,
-                          mqp->bk_qp.qp_attr.sq_size)) {
-        tmp_pi += mqp->bk_qp.qp_attr.sq_size;
+    if (tmp_pi < mqp->bk_qp.hw_qp.sq.pi) {
+        /* pi rollback case */
+        tmp_pi += UINT16_MAX;
     }
     mqp->sample_depth[mqp->sample_curr] = tmp_pi - mqp->bk_qp.sq_ci;
     mqp->sample_curr = (mqp->sample_curr + 1) % MQP_DEPTH_SAMPLE_NUM;
