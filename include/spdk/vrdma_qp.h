@@ -154,7 +154,7 @@ static inline int vrdma_vq_rollback(uint16_t pre_pi, uint16_t pi,
 	if (pi % q_size == 0) {
 		return 0;
 	}
-	return !(pi % q_size >= pre_pi % q_size);
+	return !(pi % q_size > pre_pi % q_size);
 }
 int vrdma_sched_vq(struct snap_vrdma_ctrl *ctrl,
 				     	struct spdk_vrdma_qp *vq, struct snap_pg *pg);

@@ -274,8 +274,9 @@ vrdma_mig_gen_vqp_cqe(struct spdk_vrdma_qp *vqp)
     int ret;
 
     if (!vqp) return;
-    if (vrdma_vq_rollback(vqp->vsq_ci, pre_pi, q_size)) {
-        pre_pi += q_size;
+    if (pre_pi < vqp->vsq_ci) {
+        /* rollback case */
+        pre_pi += UINT16_MAX;
     }
     for (i = vqp->vsq_ci; i < vqp->sq.comm.pre_pi; i++) {
         mqp_wqe_idx = vqp->sq.meta_buff[i % q_size].mqp_wqe_idx;
@@ -353,11 +354,9 @@ int32_t vrdma_mig_set_repost_pi(struct vrdma_backend_qp *mqp)
         return 0;
     }
 
-    if (vrdma_vq_rollback(mqp_ci, mqp_pi, mqp_sq_size)) {
-        mqp_pi += mqp_sq_size;
-    }
-    if ((mqp_pi != mqp_ci) && (mqp_ci == 0)) {
-        mqp_pi += mqp_sq_size;
+    if ((mqp_pi < mqp_ci) || ((mqp_pi != mqp_ci) && (mqp_ci == 0))) {
+        /* rollback case */
+        mqp_pi += UINT16_MAX;
     }
     /* 1: find the 1st wqe and its vqp that need repost */
     for (i = mqp_ci - 1; i < mqp_pi; i++) {
