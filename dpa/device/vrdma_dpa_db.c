@@ -13,7 +13,6 @@
 #include <libflexio-libc/string.h>
 #include <libflexio-libc/stdio.h>
 #include <libflexio-dev/flexio_dev.h>
-#include <libflexio-dev/src/flexio_dev_dpa_arch.h>
 #include <libflexio-dev/flexio_dev_queue_access.h>
 #include <libflexio-dev/flexio_dev_debug.h>
 #include "../vrdma_dpa_common.h"
@@ -421,11 +420,8 @@ vrdma_dpa_handle_one_vqp(struct flexio_dev_thread_ctx *dtctx,
 		sq_pi_last = sq_pi;
 		flexio_dev_dbr_sq_set_pi((uint32_t *)ehctx->dma_qp.dbr_daddr + 1,
 								ehctx->dma_qp.hw_qp_sq_pi);
-		//flexio_dev_qp_sq_ring_db(dtctx, ehctx->dma_qp.hw_qp_sq_pi,
-		//						ehctx->dma_qp.qp_num);
-		asm volatile("fence ow,ow" ::: "memory");
-		outbox_write(((struct flexio_os_thread_ctx *)dtctx)->outbox_base, SXD_DB, 
-					OUTBOX_V_SXD_DB(ehctx->dma_qp.hw_qp_sq_pi, ehctx->dma_qp.qp_num));
+		flexio_dev_qp_sq_ring_db(dtctx, ehctx->dma_qp.hw_qp_sq_pi,
+								ehctx->dma_qp.qp_num);
 		wqe_loop++;
 		
 		if (wqe_loop >= VRDMA_VQP_LOOP_BUDGET ||
@@ -439,11 +435,8 @@ vrdma_dpa_handle_one_vqp(struct flexio_dev_thread_ctx *dtctx,
 		fence_r();
 		sq_pi = *(uint16_t*)(ehctx->window_base_addr + vqp_ctx->host_vq_ctx.sq_pi_paddr);
 	}
-	asm volatile("fence ow,ow" ::: "memory");
-	outbox_write(((struct flexio_os_thread_ctx *)dtctx)->outbox_base, EMU_CAP,
-				OUTBOX_V_EMU_CAP(ehctx->guest_db_cq_ctx.cqn, vqp_ctx->emu_db_to_cq_id));
-	//flexio_dev_db_ctx_arm(dtctx, ehctx->guest_db_cq_ctx.cqn,
-       //	      			vqp_ctx->emu_db_to_cq_id);
+	flexio_dev_db_ctx_arm(dtctx, ehctx->guest_db_cq_ctx.cqn,
+       	      			vqp_ctx->emu_db_to_cq_id);
 
 #ifdef VRDMA_DPA_DEBUG
 	printf("\n sq_pi %d\n", sq_pi);
