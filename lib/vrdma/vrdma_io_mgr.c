@@ -1952,14 +1952,18 @@ int vrdma_write_back_sq_cqe_no_cb(struct spdk_vrdma_qp *vqp,
 					tid, vqp->qp_idx, vqp->local_cq_pi, vcq->cq_idx, pi,
 					pre_pi, vcq->pici->ci,vcqe->req_id, vcqe->owner);
 #endif
+	if (spdk_unlikely(pi - vcq->pici->ci > (vcq->cqe_entry_num >> 1))) {
+		vrdma_qp_sm_poll_cq_ci_no_cb(vqp);
+		snap_dma_q_progress(vqp->snap_queue->dma_q);
+	}
+
+check_vcq_full:
 	if (spdk_unlikely(pi - vcq->pici->ci > vcq->cqe_entry_num)) {
 		SPDK_ERRLOG("vcq full, skip write vcqe: vcq pi %d, pre_pi %d, ci %d\n",
 					pi, pre_pi, vcq->pici->ci);
-		return 0;
-	}
-
-	if (spdk_unlikely(pi - vcq->pici->ci > (vcq->cqe_entry_num >> 1))) {
 		vrdma_qp_sm_poll_cq_ci_no_cb(vqp);
+		snap_dma_q_progress(vqp->snap_queue->dma_q);
+		goto check_vcq_full;
 	}
 
 	//fetch the delta PI number entry in one time
